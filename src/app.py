@@ -325,8 +325,7 @@ for ax in axes:
 plt.tight_layout()
 st.pyplot(fig)
 fig.savefig("figures/approval_rate_by_bins.png", dpi=150)
-st.caption("Figure 5. Approval rate across bins. Credit_Score shows a strong S-shaped relationship with Approval - near 0% for low bins, jumps to about 42% for mid bins, and approaches 100% for high bins. Debt_To_Income_Ratio shows a strong negative relationship with Approval - Approval falls from almost 80% for the lowest octile to around 20% for the highest octile.")
-
+st.caption("Figure 5. Approval rate across bins. Credit_Score shows a strong S-shaped relationship with approval: near 0% below a score of about 575, a jump to roughly 42% in the 575 to 645 bin, and about 88% in the top bin. Debt_To_Income_Ratio shows a steady negative relationship: approval falls from about 77% in the lowest octile to about 30% in the highest.")
 # 3e. Correlation heatmap
 st.subheader("3e. Correlation Heatmap")
 fig, ax = plt.subplots(figsize=(13, 10))
@@ -335,9 +334,11 @@ sns.heatmap(df_clean[num_cols].corr(), annot=True, fmt=".2f", annot_kws={"size":
 st.pyplot(fig)
 fig.savefig("figures/correlation_heatmap.png", dpi=150)
 st.caption("Figure 6. Pearson correlation heatmap of numeric features. Credit_History_Years and Bank_Account_Age_Years (0.94), and DTI with Monthly_Debt_Payment (0.81), are highly correlated, which creates multicollinearity concerns for interpreting logistic regression coefficients and may split importance across features in the Random Forest. ")
+
+st.subheader("3f. Income vs. Loan Amount")
 fig, ax = plt.subplots(figsize=(7, 5))
 sns.scatterplot(data=df_clean.sample(3000, random_state=42), x="Annual_Income",
                 y="Loan_Amount", hue="Loan_Approved", alpha=0.5, ax=ax)
 st.pyplot(fig)
 fig.savefig("figures/income_vs_loan_amount.png", dpi=150)
-st.caption("Figure 7. Random sample of 3,000 applications. (Add interpretation.)")
+st.caption("Figure 7. Annual income vs. loan amount for a random sample of 3,000 applications, colored by outcome. Loan amounts rise with income, and the upper limit appears to scale with income. Rejected applicants cluster toward lower income and larger loans, while approved applicants cluster toward higher income and smaller loans, suggesting that the size of the loan relative to income matters more than either value alone. The groups overlap substantially, so income and loan amount alone do not determine approval.")
