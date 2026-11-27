@@ -192,7 +192,7 @@ axes.ravel()[-1].axis("off")   # 7 plots in 8 slots
 plt.tight_layout()
 fig.savefig("figures/outlier_boxplots.png", dpi=150)
 st.pyplot(fig)
-st.caption("Figure 1. Boxplots by approval outcome. Rejected applicants have higher loan amounts, total liabilities, monthly debt payments, and DTI, while approved applicants have higher annual income, total assets, and savings balances. Outliers echo the tail of a right skewed distribution for most plots. One interesting outlier group is approved applicants with very low annual income. There are probably other borrow characteristics (collateral, co-applicant...) that explain why they were approved despite low income, so this is worth exploring later.")
+st.caption("Figure 1. Boxplots by approval outcome. Rejected applicants have higher loan amounts, total liabilities, monthly debt payments, and DTI, while approved applicants have higher annual income, total assets, and savings balances. Outliers echo the tail of a right skewed distribution for most plots. One interesting outlier group is approved applicants with very low annual income. This is a small group pattern.")
 
 log_check = pd.DataFrame({
     "skew_raw": df_clean[skewed].skew().round(2),
@@ -209,7 +209,7 @@ cap_info = {
 st.write("**Skewness before and after a log transform**")
 st.dataframe(log_check)
 
-hist_cols = skewed + ["Savings_Balance"]   # Savings_Balance is also being log-transformed
+hist_cols = skewed + ["Savings_Balance"]   
 
 fig2, axes2 = plt.subplots(2, 4, figsize=(18, 7))
 for ax, c in zip(axes2.ravel(), hist_cols):
@@ -269,18 +269,21 @@ st.write(
     "For Logistic Regression, I agree with keeping Annual_Income, Loan_Amount, Credit_Score, "
     "and Age as is, because their skews are low and their outliers are legitimate extremes "
     "(a log transform would actually worsen Annual_Income, moving its skew from 0.07 to about -1.75). "
+    "I also agree with keeping Total_Assets (skew 0.74) and Savings_Balance (skew 0.87) as is. "
+    "Both skews are below about 1, and the high values are legitimate wealthy applicants, "
+    "so these outliers carry real signal. A log transform would also worsen Savings_Balance "
+    "(skew -4.11), because about 2.5% of applicants have a balance of exactly 0. "
     "I also agree with applying log1p to Total_Liabilities and Monthly_Debt_Payment, "
-    "whose skews (1.28 and 2.37) are high and which log1p corrects. "
-    "I modified two recommendations. First, Gemini proposed winsorizing Debt_To_Income_Ratio at 95, "
+    "whose skews (1.28 and 2.37) are high and which log1p reduces. "
+    "I modified one recommendation. Gemini proposed winsorizing Debt_To_Income_Ratio at 95, "
     "but 95 is already the column's maximum, so the cap would change nothing. "
     "I apply log1p instead to reduce its skew (2.44). "
-    "Second, Gemini kept Savings_Balance (skew 1.51) as is while transforming Total_Liabilities "
-    "(skew 1.28), which is inconsistent, so I apply log1p to every column whose skew exceeds about 1. "
-    "Total_Assets (skew 0.74) is moderately skewed but below that threshold, so it stays as is. "
+    "Overall, I apply log1p only to columns whose skew exceeds about 1. "
     "No rows will be removed, because the outliers appear to be legitimate extremes "
     "and deleting them would discard real borrower profiles. "
     "Values at apparent bounds, such as incomes of exactly 5,000, are kept and "
-    "noted as likely artifacts of the simulated data. (Note that Monthly_Debt_Payment and Loan_Amount were later removed as inputs in section 5)"
+    "noted as likely artifacts of the simulated data. "
+    "(Note that Monthly_Debt_Payment and Loan_Amount were later removed as inputs in section 5.)"
 )
 
 # ---------------------------------------------------------------
@@ -317,7 +320,7 @@ for ax, c in zip(axes.ravel(), cat_cols_clean):
 plt.tight_layout()
 st.pyplot(fig)
 fig.savefig("figures/approval_rate_by_category.png", dpi=150)
-st.caption("Figure 4. Approval rate within each category; the dashed line is the overall rate. Gender, Property_Ownership, Residential_Status, Application_Channel, Loan_Purpose, Region and Marital_Status show little to no variation in approval rate. Collateral, Co_Applicant, and Education_Level show moderate gaps, while Employment_Status and Previous_Loan_Status show the largest gaps. Applicants with a Co_Applicant or Collateral are more likely to be approved, and unemployed applicants or applicants who have previously defaulted are much less likely to be approved.")
+st.caption("Figure 4. Approval rate within each category; the dashed line is the overall rate. Gender, Property_Ownership, Residential_Status, Application_Channel, Loan_Purpose, Region and Marital_Status show little to no variation in approval rate. Collateral, Co_Applicant, and Education_Level show some gaps (section 4 later clarifies these gaps as small to neglible), while Employment_Status and Previous_Loan_Status show the largest gaps. Applicants with a Co_Applicant or Collateral are more likely to be approved, and unemployed applicants or applicants who have previously defaulted are much less likely to be approved.")
 
 # 3d. Approval rate by binned numeric variables
 st.subheader("3d. Approval Rate Across Credit Score and Debt-to-Income Ratio")
@@ -401,11 +404,11 @@ st.write("**My evaluation of the AI recommendation**")
 st.write("**Decision:** Modified")
 st.write(
     "I accepted Gemini's decision to use the Welch's t-test for the numeric variables, chi-squared tests for the categorical variables, effect sizes alongisde p-values, and ",
-    "a multiple testing correction (Bonferroni). I rejected its recommendation of the Mann-Whitney U test for some variables as that test was not covered in the course and Gemini's argument ",
+    "a multiple testing correction (I am, however, choosing standard Bonferroni for simplicity). I rejected its recommendation of the Mann-Whitney U test for some variables as that test was not covered in the course and Gemini's argument ",
     "for chosing it was inconsistent - It said the CLT justifies the t-test for N = 30,000. I will instead use Welch's t-test for all 5 numeric variables, report medians because of the skew, ",
     "and use Spearman correlation as a robustness check for Late_Payments (54% 0 count). I also rejected its cutoffs for judging importance since that would label most real effects as ",
-    "unimportant. I will check the chi-square expected-count assumption directly instead. ",
-    ""
+    "unimportant. I will check the chi-square expected-count assumption directly instead. Gemini counted 11 tests as provided in my prompt, however I added Previous_Loan_Status and Co_Applicant tests later ",
+    "after revisiting my Figure 4 interpretation."
 )   
 
 appr = df_clean[df_clean["Loan_Approved"] == "Approved"]
@@ -526,7 +529,7 @@ pairs.columns = ["feature_1", "feature_2", "corr"]
 high_pairs = pairs[pairs["corr"].abs() > 0.65].sort_values("corr", ascending=False).round(2)
 
 # Evidence 2: VIF, using the planned log1p transforms
-log_cols = ["Total_Liabilities", "Savings_Balance", "Monthly_Debt_Payment", "Debt_To_Income_Ratio"]
+log_cols = ["Total_Liabilities", "Monthly_Debt_Payment", "Debt_To_Income_Ratio"]
 X_vif = df_clean[num_cols].copy()
 X_vif[log_cols] = np.log1p(X_vif[log_cols])
 X_vif = (X_vif - X_vif.mean()) / X_vif.std()
@@ -547,7 +550,7 @@ You are a senior data scientist advising on feature selection for a loan approva
 CONTEXT
 - 30,000 applications; target is Loan_Approved (57.6% Approved, 42.4% Rejected).
 - Research question: which borrower characteristics most strongly predict approval? The goal is interpretation, not only accuracy.
-- Models: Logistic Regression (baseline, standardized features, log1p on Total_Liabilities, Savings_Balance, Monthly_Debt_Payment, Debt_To_Income_Ratio) and Random Forest (advanced, raw features). I will compare logistic regression coefficients with permutation importance from the forest.
+- Models: Logistic Regression (baseline, standardized features, log1p on Total_Liabilities, Monthly_Debt_Payment, Debt_To_Income_Ratio) and Random Forest (advanced, raw features). I will compare logistic regression coefficients with permutation importance from the forest.
 - Bank outputs (Risk_Score, Default_Risk, Approved_Amount, Interest_Rate) were already removed as leakage.
 - Remaining columns: Age, Gender, Marital_Status, Education_Level, Employment_Status, Job_Experience_Years, Annual_Income, Credit_Score, Credit_History_Years, Existing_Loans, Late_Payments_Last_2_Years, Loan_Amount, Loan_Term_Months, Loan_Purpose, Debt_To_Income_Ratio, Savings_Balance, Checking_Balance, Total_Assets, Total_Liabilities, Monthly_Debt_Payment, Property_Ownership, Residential_Status, Dependents, Co_Applicant, Collateral, Application_Channel, Region, Bank_Account_Age_Years, Previous_Loan_Status.
 
@@ -591,7 +594,7 @@ for c in ["Credit_History_Years", "Bank_Account_Age_Years"]:
 # 2. VIF after the planned drops, with and without the loan-to-income ratio
 final_drop = ["Age", "Gender", "Marital_Status", "Monthly_Debt_Payment", "Bank_Account_Age_Years"]
 num_final = [c for c in num_cols if c not in final_drop]
-log_cols_final = ["Total_Liabilities", "Savings_Balance", "Debt_To_Income_Ratio"]
+log_cols_final = ["Total_Liabilities", "Debt_To_Income_Ratio"]
 
 def vif_table(X):
     X = X.copy()
@@ -669,7 +672,7 @@ CATEGORICAL_FEATURES = [c for c in df_model.columns
 assert len(NUMERIC_FEATURES) == 14 and len(CATEGORICAL_FEATURES) == 10
 assert not {"Age", "Gender", "Marital_Status", "Monthly_Debt_Payment",
             "Bank_Account_Age_Years", "Loan_Amount"} & set(df_model.columns)
-LOG_FEATURES = ["Total_Liabilities", "Savings_Balance", "Debt_To_Income_Ratio"]  # logistic regression only
+LOG_FEATURES = ["Total_Liabilities", "Debt_To_Income_Ratio"]  # logistic regression only
 
 st.write(f"Final model dataset: {len(NUMERIC_FEATURES) + len(CATEGORICAL_FEATURES)} features "
          f"({len(NUMERIC_FEATURES)} numeric, {len(CATEGORICAL_FEATURES)} categorical).")
@@ -718,7 +721,7 @@ CONTEXT
 - Research question: which borrower characteristics most strongly predict approval? The goal is interpretation, not only accuracy.
 - Split: stratified 80/20, {len(X_train):,} training rows and {len(X_test):,} test rows. I plan 5-fold cross-validation on the training set.
 - Features: {len(NUMERIC_FEATURES)} numeric and {len(CATEGORICAL_FEATURES)} categorical, which become {n_encoded_lr} columns for logistic regression and {n_encoded_rf} for the random forest after one-hot encoding.
-- Logistic Regression (baseline): numerics standardized; Total_Liabilities, Savings_Balance, and Debt_To_Income_Ratio log1p-transformed first; categoricals one-hot encoded with the first level dropped.
+- Logistic Regression (baseline): numerics standardized; Total_Liabilities and Debt_To_Income_Ratio log1p-transformed first; categoricals one-hot encoded with the first level dropped.
 - Random Forest (advanced): raw numerics, one-hot categoricals.
 - Planned metrics: accuracy, precision, recall, F1, ROC-AUC, and a confusion matrix on the test set.
 - Remaining correlations between features are moderate (maximum VIF {vif_table(X_final).max():.1f}). Previous exploratory analysis found strong effects for Credit_Score, Late_Payments_Last_2_Years, Debt_To_Income_Ratio, Employment_Status, and Previous_Loan_Status.
@@ -830,11 +833,11 @@ axes[2].legend()
 plt.tight_layout()
 fig.savefig("figures/model_evaluation.png", dpi=150)
 st.pyplot(fig)
-st.caption("Figure 8. Test-set confusion matrices (left, middle) and ROC curves (right). Logistic regression classifies 4,850 of 6,000 "
-           "applications correctly (1,854 rejections and 2,996 approvals) and the random forest 4,881 (1,838 and 3,043). Both models make more "
-           "false approvals (688 and 704 applications the bank rejected but the model approves) than false rejections (462 and 415), which is "
+st.caption("Figure 8. Test-set confusion matrices (left, middle) and ROC curves (right). Logistic regression classifies 4,866 of 6,000 "
+           "applications correctly (1,877 rejections and 2,989 approvals) and the random forest 4,881 (1,838 and 3,043). Both models make more "
+           "false approvals (665 and 704 applications the bank rejected but the model approves) than false rejections (469 and 415), which is "
            "why recall is higher than precision. The two ROC curves are nearly identical and rise steeply above the chance line, consistent "
-           "with test AUCs of 0.888 and 0.889.")
+           "with test AUCs of 0.889 for both models.")
 
 st.subheader("5f. Feature Importance")
 
@@ -864,10 +867,10 @@ plt.tight_layout()
 fig.savefig("figures/feature_importance.png", dpi=150)
 st.pyplot(fig)
 st.caption("Figure 9. Permutation importance (drop in test ROC-AUC when a feature is shuffled) for the 12 most important features. "
-           "Credit_Score dominates in both models (about 0.12 for logistic regression and 0.10 for the random forest), followed by "
-           "Loan_to_Income and Previous_Loan_Status. The two rankings agree closely (Spearman correlation 0.95). Logistic regression "
+           "Credit_Score dominates in both models (about 0.11 for logistic regression and 0.10 for the random forest), followed by "
+           "Loan_to_Income and Previous_Loan_Status. The two rankings agree closely (Spearman correlation 0.93). Logistic regression "
            "assigns larger importance than the forest to most features, notably Debt_To_Income_Ratio and Late_Payments_Last_2_Years, "
-           "while the forest gives Savings_Balance more weight.")
+           "while Savings_Balance receives about the same importance in both models.")
 
 # Direction and size of effects from the logistic regression
 names = best_lr.named_steps["prep"].get_feature_names_out()
@@ -888,19 +891,19 @@ st.dataframe(pd.DataFrame({"actual approval rate": y_test.groupby(g).mean(),
 
 st.markdown("""
 **Model performance.** Both models perform far above the majority-class baseline of 57.6% accuracy. The logistic regression reaches a test
-ROC-AUC of 0.888 and accuracy of 0.808, and the random forest reaches 0.889 and 0.814. The difference is negligible, so the nonlinear
-model adds almost nothing over the linear baseline, which suggests the relationships between borrower characteristics and approval are largely
-additive. The random forest's training AUC (0.953) is much higher than its test AUC (0.889), but its cross-validated AUC (0.892) matches the
-test result, so this overfitting does not hurt generalization. The logistic regression shows no such gap (0.894 train, 0.888 test).
+ROC-AUC of 0.889 and accuracy of 0.811, and the random forest reaches 0.889 and 0.814. The AUCs are identical to three decimals, so the
+nonlinear model adds almost nothing over the linear baseline, which suggests the relationships between borrower characteristics and approval
+are largely additive. The random forest's training AUC (0.953) is much higher than its test AUC (0.889), but its cross-validated AUC (0.892)
+matches the test result, so this overfitting does not hurt generalization. The logistic regression shows almost no such gap (0.895 train, 0.889 test).
 
 The confusion matrices (Figure 8) show how the models err. Of the 6,000 test applications, 3,458 were approved by the bank and 2,542 were rejected.
-The logistic regression correctly identifies 2,996 of the approvals (recall 0.866) and 1,854 of the rejections, while the random forest
-identifies 3,043 approvals (recall 0.880) and 1,838 rejections. Both models make more false approvals (688 and 704 applications the model
-would approve but the bank rejected) than false rejections (462 and 415), so precision (about 0.81) is lower than recall, and the models
-reject only about 72 to 73% of the applications the bank actually rejected. This is the behavior a model tends to show when the
+The logistic regression correctly identifies 2,989 of the approvals (recall 0.864) and 1,877 of the rejections, while the random forest
+identifies 3,043 approvals (recall 0.880) and 1,838 rejections. Both models make more false approvals (665 and 704 applications the model
+would approve but the bank rejected) than false rejections (469 and 415), so precision (about 0.81 to 0.82) is lower than recall, and the models
+reject only about 72 to 74% of the applications the bank actually rejected. This is the behavior a model tends to show when the
 majority class is approval and the remaining decision logic is not captured by the available features.
 
-**Feature importance.** The two models agree closely (Spearman rank correlation = 0.95, p < 0.001), although the lower ranks are
+**Feature importance.** The two models agree closely (Spearman rank correlation = 0.93, p < 0.001), although the lower ranks are
 dominated by features whose importance is near zero, where the ordering is mostly noise. Credit_Score is by far the most important feature,
 followed by Loan_to_Income and Previous_Loan_Status. Employment_Status, Late_Payments_Last_2_Years, Collateral, and Debt_To_Income_Ratio
 come next. Region, Education_Level, Property_Ownership, Loan_Purpose, and Dependents contribute essentially nothing, which is consistent with
@@ -909,16 +912,16 @@ its information is largely captured by Loan_to_Income and Credit_Score, which sh
 feature's importance.
 
 **Direction and size of effects.** In the logistic regression, the largest effects are a previous default (odds ratio 0.05 relative to an
-active loan), unemployment (0.10 relative to business owners), and credit score (3.38 per standard deviation). A higher loan-to-income
-ratio (0.44 per standard deviation), more late payments (0.53), and a higher debt-to-income ratio (0.58) lower the odds of approval, while
-collateral (2.27) and a co-applicant (1.65) raise them. Coefficients are conditional on the other features, so the negative coefficient on
+active loan), unemployment (0.10 relative to business owners), and credit score (3.17 per standard deviation). A higher loan-to-income
+ratio (0.43 per standard deviation), more late payments (0.52), and a higher debt-to-income ratio (0.57) lower the odds of approval, while
+collateral (2.29) and a co-applicant (1.66) raise them. Coefficients are conditional on the other features, so the negative coefficient on
 Annual_Income and the positive one on Total_Liabilities should not be read as standalone effects, since the loan-to-income ratio and
 debt-to-income ratio already contain these variables.
 
 **Gender audit.** Gender was not a model input, so any difference in predictions would have to arise through correlated features.
 In the test set, the actual approval rate is 57.4% for women and 57.8% for men. The logistic regression predicts approval for
-61.9% of women and 61.0% of men, and the random forest for 63.2% and 61.9%. The gaps between genders (0.9 and 1.3 percentage points)
-are smaller than the roughly 2.5-point margin of sampling noise expected with about 3,000 applications per group, so this audit finds no
+61.7% of women and 60.3% of men, and the random forest for 63.2% and 61.9%. The gaps between genders (1.4 and 1.3 percentage points)
+are smaller than the roughly 2.5-point margin of sampling noise expected with about 3,000 applicants per group, so this audit finds no
 evidence that the models treat the genders differently. This agrees with the chi-square test on the full data, which found no
 association between gender and approval (V = 0.005). The audit has limits: it compares overall predicted approval rates and does not compare
 error rates between groups, and it covers only gender, since Age and Marital_Status were also excluded from the models but were not audited.
