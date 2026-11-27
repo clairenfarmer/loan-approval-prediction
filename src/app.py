@@ -6,6 +6,7 @@ import seaborn as sns
 from sklearn.model_selection import cross_val_score
 from sklearn.ensemble import HistGradientBoostingRegressor
 from cache_helper import ask_ai, save_decision, load_log
+from scipy import stats
 
 st.set_page_config(page_title="Loan Approval Analysis", layout="wide")
 st.title("Loan Approval Prediction: AI-Assisted Data Science Report")
@@ -137,12 +138,12 @@ st.write(
     "This is verified by the fact that it is 0 for 100% of rejected applications. ",
     "Default_Risk is just Risk_Score split into three bins, making it a post-decision categorization. ",
     "Risk_Score can be predicted from other borrower features (R² about 0.89) and is most likely a derived metric from the bank.",
-    "Gemini suggested to KEEP Interest_Rate, but I disagree. It is also a post-decision metric, while it has a moderate correlation with borrower features (R² about 0.67). ",
+    "Gemini suggested to KEEP Interest_Rate, but I disagree. While it has a moderate correlation with borrower features (R² about 0.67). ",
     "it is unclear wether it was set before or after the approval decision. For this reason, I am excluding it to avoid possible leakage.",
     "especially since Interest_Rate is not a borrower characteristic."
 )   
 
-# based on my evaluation...
+# Drop columns based on my evaluation
 DROP_COLS = ["Application_ID", "Monthly_Income", "Approved_Amount",
              "Default_Risk", "Risk_Score", "Interest_Rate"]
 df_clean = df.drop(columns=DROP_COLS)
@@ -194,6 +195,19 @@ cap_info = {
 st.write("**Skewness before and after a log transform**")
 st.dataframe(log_check)
 
+hist_cols = skewed + ["Savings_Balance"]   # Savings_Balance is also being log-transformed
+
+fig2, axes2 = plt.subplots(2, 4, figsize=(18, 7))
+for ax, c in zip(axes2.ravel(), hist_cols):
+    sns.histplot(df_clean, x=c, hue="Loan_Approved", bins=50, log_scale=True,
+                 element="step", stat="density", common_norm=False, ax=ax)
+    ax.set_title(f"{c} (log scale)")
+axes2.ravel()[-1].axis("off")   # 7 plots in 8 slots
+plt.tight_layout()
+fig2.savefig("figures/outlier_histograms.png", dpi=150)
+st.pyplot(fig2)
+st.caption("Figure 2. Distributions on a log x-axis, by approval outcome. (Add your interpretation here.)")
+
 outlier_prompt = f"""
 You are a senior data scientist advising on outlier treatment for a loan dataset.
 
@@ -235,7 +249,7 @@ with st.spinner("Consulting Gemini (the saved answer is reused on later runs)...
 st.write("**My evaluation of the AI recommendation**")
 st.write("**Decision:** Modified")
 st.write(
-    "**Decision: Modified.** I accepted most of Gemini's recommendations. "
+    "I accepted most of Gemini's recommendations. "
     "For Random Forest, I agree with keeping every feature as is, since tree-based models "
     "are unaffected by monotonic transformations and robust to outliers. "
     "For Logistic Regression, I agree with keeping Annual_Income, Loan_Amount, Credit_Score, "
@@ -254,3 +268,68 @@ st.write(
     "Values at apparent bounds, such as incomes of exactly 5,000, are kept and "
     "noted as likely artifacts of the simulated data."
 )
+
+st.header("3. Exploratory Data Analysis")
+y = (df_clean["Loan_Approved"] == "Approved")
+num_cols = df_clean.select_dtypes(include="number").columns.tolist()
+cat_cols_clean = [c for c in df_clean.columns if c not in num_cols and c != "Loan_Approved"]
+
+# 3a. Target balance
+st.subheader("3a. Outcome Balance")
+fig, ax = plt.subplots(figsize=(4, 3))
+df_clean["Loan_Approved"].value_counts().plot.bar(ax=ax)
+ax.set_ylabel("Applications")
+st.pyplot(fig)
+fig.savefig("figures/target_balance.png", dpi=150)
+st.caption("Figure 3. Approved vs. rejected counts. (Add interpretation.)")
+
+# 3b. Descriptive statistics and group-by aggregation
+st.subheader("3b. Descriptive Statistics by Outcome")
+st.dataframe(df_clean[num_cols].describe().T.round(2))
+st.write("Mean and median of each numeric variable by approval outcome (group-by aggregation):")
+st.dataframe(df_clean.groupby("Loan_Approved")[num_cols].agg(["mean", "median"]).round(1).T)
+
+# 3c. Approval rate by category (group-by)
+st.subheader("3c. Approval Rate by Category")
+fig, axes = plt.subplots(4, 3, figsize=(15, 14))
+for ax, c in zip(axes.ravel(), cat_cols_clean):
+    y.groupby(df_clean[c]).mean().sort_values().plot.barh(ax=ax)
+    ax.axvline(y.mean(), color="red", linestyle="--")
+    ax.set_title(c)
+    ax.set_xlabel("Approval rate")
+plt.tight_layout()
+st.pyplot(fig)
+fig.savefig("figures/approval_rate_by_category.png", dpi=150)
+st.caption("Figure 4. Approval rate within each category; the dashed line is the overall rate. (Add interpretation.)")
+
+# 3d. Approval rate by binned numeric variables
+st.subheader("3d. Approval Rate Across Credit Score and Debt-to-Income Ratio")
+fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+y.groupby(pd.cut(df_clean["Credit_Score"], bins=8)).mean().plot(marker="o", ax=axes[0])
+axes[0].set_title("Approval rate by Credit_Score bin")
+y.groupby(pd.qcut(df_clean["Debt_To_Income_Ratio"], q=8)).mean().plot(marker="o", ax=axes[1])
+axes[1].set_title("Approval rate by Debt_To_Income_Ratio octile")
+for ax in axes:
+    ax.tick_params(axis="x", rotation=45)
+plt.tight_layout()
+st.pyplot(fig)
+fig.savefig("figures/approval_rate_by_bins.png", dpi=150)
+st.caption("Figure 5. Approval rate across bins. (Add interpretation.)")
+
+# 3e. Correlation heatmap
+st.subheader("3e. Correlation Heatmap")
+fig, ax = plt.subplots(figsize=(13, 10))
+sns.heatmap(df_clean[num_cols].corr(), annot=True, fmt=".2f", annot_kws={"size": 7},
+            cmap="coolwarm", center=0, ax=ax)
+st.pyplot(fig)
+fig.savefig("figures/correlation_heatmap.png", dpi=150)
+st.caption("Figure 6. Pearson correlations among numeric variables. (Note clusters of correlated features.)")
+
+# 3f. Scatterplot
+st.subheader("3f. Income vs. Loan Amount")
+fig, ax = plt.subplots(figsize=(7, 5))
+sns.scatterplot(data=df_clean.sample(3000, random_state=42), x="Annual_Income",
+                y="Loan_Amount", hue="Loan_Approved", alpha=0.5, ax=ax)
+st.pyplot(fig)
+fig.savefig("figures/income_vs_loan_amount.png", dpi=150)
+st.caption("Figure 7. Random sample of 3,000 applications. (Add interpretation.)")
