@@ -271,6 +271,9 @@ st.write(
     "noted as likely artifacts of the simulated data."
 )
 
+# ---------------------------------------------------------------
+# 3. EDA
+# ---------------------------------------------------------------
 st.header("3. Exploratory Data Analysis")
 y = (df_clean["Loan_Approved"] == "Approved")
 num_cols = df_clean.select_dtypes(include="number").columns.tolist()
@@ -342,3 +345,157 @@ sns.scatterplot(data=df_clean.sample(3000, random_state=42), x="Annual_Income",
 st.pyplot(fig)
 fig.savefig("figures/income_vs_loan_amount.png", dpi=150)
 st.caption("Figure 7. Annual income vs. loan amount for a random sample of 3,000 applications, colored by outcome. Loan amounts rise with income, and the upper limit appears to scale with income. Rejected applicants cluster toward lower income and larger loans, while approved applicants cluster toward higher income and smaller loans, suggesting that the size of the loan relative to income matters more than either value alone. The groups overlap substantially, so income and loan amount alone do not determine approval.")
+
+# ---------------------------------------------------------------
+# 4. Statistical Analysis
+# ---------------------------------------------------------------
+st.header("4. Statistical Analysis")
+test_vars = ["Credit_Score", "Annual_Income", "Debt_To_Income_Ratio",
+             "Late_Payments_Last_2_Years", "Credit_History_Years"]
+test_info = pd.DataFrame({
+    "skew": df_clean[test_vars].skew().round(2),
+    "share_zero": (df_clean[test_vars] == 0).mean().round(3),
+    "n_unique_values": df_clean[test_vars].nunique(),
+})
+group_sizes = df_clean["Loan_Approved"].value_counts().to_dict()
+
+stat_prompt = f"""
+You are a statistician advising on hypothesis tests for a loan dataset.
+
+CONTEXT
+- Target: Loan_Approved (Approved/Rejected). Group sizes: {group_sizes}.
+- Research question: which borrower characteristics most strongly predict approval?
+- Numeric variables I want to compare between approved and rejected applicants:
+{test_info.to_string()}
+- Categorical variables (each with 2 to 7 categories): Employment_Status, Collateral, Loan_Purpose, Education_Level, Gender, Region.
+- With 30,000 rows I expect nearly every p-value to be very small.
+
+TASK
+Recommend which formal tests to use for the numeric and for the categorical variables, and justify each choice using the evidence above. Say whether any variable needs a different test, how to handle multiple comparisons, and which effect size to report alongside each p-value.
+
+OUTPUT FORMAT
+A markdown table with columns: Variable type | Test | Why | Effect size. Then 2-3 sentences on risks.
+"""
+
+st.write("**AI consultation (Gemini)**")
+with st.spinner("Consulting Gemini (the saved answer is reused on later runs)..."):
+    try:
+        st.markdown(ask_ai("stat_test_selection", stat_prompt))
+    except RuntimeError as e:
+        st.warning("The AI service is unavailable right now. Reload in a minute to retry.")
+        st.caption(str(e))
+
+st.write("**My evaluation of the AI recommendation**")
+st.write("**Decision:** Modified")
+st.write(
+    "I accepted Gemini's decision to use the Welch's t-test for the numeric variables, chi-squared tests for the categorical variables, effect sizes alongisde p-values, and ",
+    "a multiple testing correction (Bonferroni). I rejected its recommendation of the Mann-Whitney U test for some variables as that test was not covered in the course and Gemini's argument ",
+    "for chosing it was inconsistent - It said the CLT justifies the t-test for N = 30,000. I will instead use Welch's t-test for all 5 numeric variables, report medians because of the skew, ",
+    "and use Spearman correlation as a robustness check for Late_Payments (54% 0 count). I also rejected its cutoffs for judging importance since that would label most real effects as ",
+    "unimportant. I will check the chi-square expected-count assumption directly instead. ",
+    ""
+)   
+
+appr = df_clean[df_clean["Loan_Approved"] == "Approved"]
+rej = df_clean[df_clean["Loan_Approved"] == "Rejected"]
+num_tests = ["Credit_Score", "Annual_Income", "Debt_To_Income_Ratio",
+             "Late_Payments_Last_2_Years", "Credit_History_Years"]
+cat_tests = ["Employment_Status", "Previous_Loan_Status", "Co_Applicant", "Collateral",
+             "Loan_Purpose", "Education_Level", "Gender", "Region"]
+
+def size_label(x, small, medium, large):
+    x = abs(x)
+    return "negligible" if x < small else "small" if x < medium else "medium" if x < large else "large"
+
+results = []
+
+# Welch t-tests
+for c in num_tests:
+    a, r = appr[c], rej[c]
+    t, p = stats.ttest_ind(a, r, equal_var=False)
+    pooled = np.sqrt(((len(a)-1)*a.var() + (len(r)-1)*r.var()) / (len(a)+len(r)-2))
+    d = (a.mean() - r.mean()) / pooled
+    results.append({"variable": c, "test": "Welch t-test", "statistic": round(t, 2), "p_raw": p,
+                    "effect": round(d, 3), "effect type": "Cohen's d", "size": size_label(d, 0.2, 0.5, 0.8),
+                    "mean approved": round(a.mean(), 2), "mean rejected": round(r.mean(), 2),
+                    "median approved": round(a.median(), 2), "median rejected": round(r.median(), 2)})
+
+# Chi-square tests
+min_expected = {}
+for c in cat_tests:
+    ct = pd.crosstab(df_clean[c], df_clean["Loan_Approved"])
+    chi2, p, dof, expected = stats.chi2_contingency(ct)
+    v = np.sqrt(chi2 / (ct.values.sum() * (min(ct.shape) - 1)))
+    min_expected[c] = round(expected.min(), 1)
+    results.append({"variable": c, "test": "Chi-square", "statistic": round(chi2, 2), "p_raw": p,
+                    "effect": round(v, 3), "effect type": "Cramér's V", "size": size_label(v, 0.1, 0.3, 0.5)})
+
+res = pd.DataFrame(results)
+m = len(res)
+res["p_bonferroni"] = (res["p_raw"] * m).clip(upper=1).map(lambda x: f"{x:.2e}")
+res["p_raw"] = res["p_raw"].map(lambda x: f"{x:.2e}")
+st.dataframe(res)
+st.caption(f"Bonferroni correction across {m} tests (adjusted alpha = {0.05/m:.4f}). "
+           "Effect-size labels follow Cohen's conventions and are descriptive, not pass/fail cutoffs.")
+st.write("Smallest expected cell count in each chi-square table (should be at least 5):", min_expected)
+
+for c in ["Previous_Loan_Status", "Co_Applicant"]:
+    st.write(f"Approval rate by {c}:")
+    st.dataframe(
+        df_clean.groupby(c)["Loan_Approved"]
+        .apply(lambda s: (s == "Approved").mean())
+        .round(3)
+        .rename("approval rate")
+        .to_frame()
+    )
+
+# Correlation analysis (robustness check for the numeric variables)
+y_bin = (df_clean["Loan_Approved"] == "Approved").astype(int)
+corr_rows = []
+for c in num_tests:
+    rho, p = stats.spearmanr(df_clean[c], y_bin)
+    corr_rows.append({"variable": c, "Spearman rho with approval": round(rho, 3), "p": f"{p:.2e}"})
+st.write("Spearman correlation of each numeric variable with approval (robustness check):")
+st.dataframe(pd.DataFrame(corr_rows))
+
+st.markdown("""
+**Interpretation.** All 13 tests are judged against a Bonferroni-adjusted threshold of 0.05 / 13 = 0.0038.
+P-valuesshown as "< 0.001" are smaller than the display limit of the software. With 30,000 applicants, nearly every 
+test is statistically significant, so the effect sizes (Cohen's d and Cramer's V for numeric and categorical variables 
+respectively) matter more than p-values.
+
+**Welch's t-tests.** Each test compares the mean of a numeric variable between 2 independent groups - approved and rejected 
+appplicants. With large groups, as in this dataset, the CLT makes the comparison of means reliable even for skewed variables.
+ For every test, H0 = The mean is the same for approved and rejected applicants.
+- **Credit_Score:** t = 90.27, p < 0.001, d = 1.08 (large). Approved applicants average 714.7 vs. 630.6 for rejected
+  applicants, making credit score the strongest numeric separator of the outcome.
+- **Annual_Income:** t = 33.28, p < 0.001, d = 0.39 (small). Approved applicants earn about 11,700 dollars more on average.
+- **Debt_To_Income_Ratio:** t = -47.46, p < 0.001, d = -0.60 (medium). Rejected applicants carry a higher ratio
+  (mean 13.8 vs. 8.3; median 10.7 vs. 6.3).
+- **Late_Payments_Last_2_Years:** t = -52.83, p < 0.001, d = -0.68 (medium). Rejected applicants average 1.17 late
+  payments vs. 0.47 (medians of 1 vs. 0). Because this variable is a zero-heavy count, I checked it with a Spearman
+  correlation, which agrees in direction (rho = -0.28).
+- **Credit_History_Years:** t = 15.79, p < 0.001, d = 0.18 (very small). Approved applicants have about 1.2 more years of
+  credit history on average, a statistically significant but practically small difference.
+
+  **Chi-square tests of independence.** Each test asks whether approval rates differ across the categories of a variable. Both 
+  since both variables are categorical, a chi-square test is appropriate here. Every table has expected cell counts above 500, 
+  so the assumption of at least 5 is met. For every test, H0 = approval is independent of the variable.
+- **Employment_Status:** χ2 = 2073.79 (df = 4), p < 0.001, V = 0.26 (small to moderate). The association is driven mainly
+  by unemployed applicants, who are approved far less often than every other group (Figure 4).
+- **Previous_Loan_Status:** χ2 = 1712.71 (df = 3), p < 0.001, V = 0.24 (small to moderate). Applicants with a previously
+  defaulted loan are approved only about 15% of the time, compared with about 65% of those who paid off a previous loan.
+- **Co_Applicant:** χ2 = 138.91 (df = 1), p < 0.001, V = 0.07 (negligible). Applications with a co-applicant are approved
+  somewhat more often (about 63% vs. 55%), but the association is weak.
+- **Collateral:** χ2 = 307.35 (df = 1), p < 0.001, V = 0.10 (small). Applicants offering collateral are approved more often.
+- **Loan_Purpose:** χ2 = 93.68 (df = 6), p < 0.001, V = 0.06 (negligible).
+- **Education_Level:** χ2 = 42.03 (df = 3), p < 0.001, V = 0.04 (negligible), with a mild upward gradient from High
+  School to PhD.
+- **Gender:** χ2 = 0.71 (df = 1), p = 0.40, V = 0.005. There is no evidence that approval differs by gender.
+- **Region:** χ2 = 9.33 (df = 4), raw p = 0.053 (adjusted p ≈ 0.69), V = 0.02. There is no evidence of a regional difference.
+
+**Takeaway.** For numeric variables, credit score shows by far the largest difference between approved and rejected  applicants. Late payments and debt-to-income
+ ratio are the next most significant. For categorical variables, employment status and previous loan status show the largest associations. Gender 
+ and region on the other hand, show no association. These comparrisons cannot separate overlapping effects due to the one-variable-at-a-time 
+ method (credit score is correlated with late payments and savings), so the following section will fit multivariable models.
+  """)
