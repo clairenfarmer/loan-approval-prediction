@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.model_selection import cross_val_score
 from sklearn.ensemble import HistGradientBoostingRegressor
-from cache_helper import ask_ai, save_decision
+from cache_helper import ask_ai, save_decision, load_log
 
 st.set_page_config(page_title="Loan Approval Analysis", layout="wide")
 st.title("Loan Approval Prediction: AI-Assisted Data Science Report")
@@ -122,11 +122,12 @@ A markdown table with columns: Column | Decision | Reason. After the table, add 
 """
 
 st.write("**AI consultation (Gemini)**")
-try:
-    st.markdown(ask_ai("leakage_review", leakage_prompt))
-except RuntimeError as e:
-    st.warning("The AI service is temporarily unavailable. Reload in a minute to retry.")
-    st.caption(str(e))
+with st.spinner("Consulting Gemini (the saved answer is reused on later runs)..."):
+    try:
+        st.markdown(ask_ai("leakage_review", leakage_prompt))
+    except RuntimeError as e:
+        st.warning("The AI service is temporarily unavailable. Reload in a minute to retry.")
+        st.caption(str(e))
 
 st.write("**My evaluation of the AI recommendation**")
 st.write("**Decision:** Modified")
@@ -147,3 +148,109 @@ DROP_COLS = ["Application_ID", "Monthly_Income", "Approved_Amount",
 df_clean = df.drop(columns=DROP_COLS)
 st.write(f"Removed: {', '.join(DROP_COLS)}. {df_clean.shape[1]} columns remain.")
 
+# 2c. Outlier detection
+st.subheader("2c. Outlier Detection")
+out_cols = ["Annual_Income", "Loan_Amount", "Total_Assets", "Total_Liabilities",
+            "Savings_Balance", "Monthly_Debt_Payment", "Debt_To_Income_Ratio",
+            "Credit_Score", "Age"]
+rows = []
+for c in out_cols:
+    q1, q3 = df_clean[c].quantile([0.25, 0.75])
+    iqr = q3 - q1
+    lo, hi = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+    flagged = (df_clean[c] < lo) | (df_clean[c] > hi)
+    rows.append({"column": c, "n_outliers": int(flagged.sum()),
+                 "pct": round(100 * flagged.mean(), 2),
+                 "skew": round(df_clean[c].skew(), 2),
+                 "approval rate among outliers": round((df_clean.loc[flagged, "Loan_Approved"] == "Approved").mean(), 3) if flagged.any() else None})
+st.dataframe(pd.DataFrame(rows))
+st.write(f"Overall approval rate: {(df_clean['Loan_Approved'] == 'Approved').mean():.3f}")
+
+fig, axes = plt.subplots(2, 3, figsize=(14, 7))
+for ax, c in zip(axes.ravel(), ["Annual_Income", "Loan_Amount", "Total_Assets",
+                                "Total_Liabilities", "Monthly_Debt_Payment", "Debt_To_Income_Ratio"]):
+    sns.boxplot(x="Loan_Approved", y=c, data=df_clean, ax=ax)
+    ax.set_title(c)
+plt.tight_layout()
+fig.savefig("figures/outlier_boxplots.png", dpi=150)
+st.pyplot(fig)
+st.caption("Figure 1. Boxplots by approval outcome. (Add your interpretation here after reviewing the plots.)")
+
+skewed = ["Annual_Income", "Loan_Amount", "Total_Assets",
+          "Total_Liabilities", "Monthly_Debt_Payment", "Debt_To_Income_Ratio"]
+
+log_check = pd.DataFrame({
+    "skew_raw": df_clean[skewed].skew().round(2),
+    "skew_after_log1p": np.log1p(df_clean[skewed]).skew().round(2),
+})
+medians_by_outcome = df_clean.groupby("Loan_Approved")[skewed].median().round(1).T
+outlier_table = pd.DataFrame(rows).to_string(index=False)
+cap_info = {
+    "Annual_Income == 5,000": int((df_clean["Annual_Income"] == 5000).sum()),
+    "Loan_Amount == 500,000": int((df_clean["Loan_Amount"] == 500000).sum()),
+    "Debt_To_Income_Ratio == 95 (max)": int((df_clean["Debt_To_Income_Ratio"] == 95).sum()),
+}
+
+st.write("**Skewness before and after a log transform**")
+st.dataframe(log_check)
+
+outlier_prompt = f"""
+You are a senior data scientist advising on outlier treatment for a loan dataset.
+
+CONTEXT
+- 30,000 loan applications; target is Loan_Approved (Approved/Rejected).
+- Research question: which borrower characteristics most strongly predict approval?
+- Modeling plan: a stratified 80/20 split, then Logistic Regression (baseline) and Random Forest (advanced). The goal is interpretation, not just accuracy: I will compare logistic regression coefficients (on standardized features) with permutation importance from the forest to decide which borrower characteristics matter most.
+- Preprocessing will run inside a scikit-learn Pipeline so that anything fitted from the data (scalers, percentile caps) uses only the training set.
+- No missing values or impossible values were found. The data appears to be simulated.
+
+EVIDENCE (IQR rule, 1.5 x IQR)
+{outlier_table}
+
+Overall approval rate: {(df_clean['Loan_Approved'] == 'Approved').mean():.3f}
+
+Values sitting exactly at apparent bounds: {cap_info}
+
+Skewness before and after a log1p transform:
+{log_check.to_string()}
+
+Median by approval outcome:
+{medians_by_outcome.to_string()}
+
+TASK
+For each column, recommend a treatment separately for Logistic Regression and for Random Forest (keep as is, log-transform, winsorize, or remove rows), and justify each in one sentence using the evidence. Say whether the outliers look like errors or legitimate extremes. Explain how your recommendation affects the interpretability of the coefficients and importances.
+
+OUTPUT FORMAT
+A markdown table with columns: Column | Logistic Regression | Random Forest | Reason. Then 2-3 sentences on risks.
+"""
+
+st.write("**AI consultation (Gemini)**")
+with st.spinner("Consulting Gemini (the saved answer is reused on later runs)..."):
+    try:
+        st.markdown(ask_ai("outlier_treatment_v2", outlier_prompt))
+    except RuntimeError as e:
+        st.warning("The AI service is unavailable right now. Reload in a minute to retry.")
+        st.caption(str(e))
+
+st.write("**My evaluation of the AI recommendation**")
+st.write("**Decision:** Modified")
+st.write(
+    "**Decision: Modified.** I accepted most of Gemini's recommendations. "
+    "For Random Forest, I agree with keeping every feature as is, since tree-based models "
+    "are unaffected by monotonic transformations and robust to outliers. "
+    "For Logistic Regression, I agree with keeping Annual_Income, Loan_Amount, Credit_Score, "
+    "and Age as is, because their skews are low and their outliers are legitimate extremes "
+    "(a log transform would actually worsen Annual_Income, moving its skew from 0.07 to about -1.75). "
+    "I also agree with applying log1p to Total_Liabilities and Monthly_Debt_Payment, "
+    "whose skews (1.28 and 2.37) are high and which log1p corrects. "
+    "I modified two recommendations. First, Gemini proposed winsorizing Debt_To_Income_Ratio at 95, "
+    "but 95 is already the column's maximum, so the cap would change nothing. "
+    "I apply log1p instead to reduce its skew (2.44). "
+    "Second, Gemini kept Savings_Balance (skew 1.51) as is while transforming Total_Liabilities "
+    "(skew 1.28), which is inconsistent, so I apply log1p to every column whose skew exceeds about 1. "
+    "Total_Assets (skew 0.74) is moderately skewed but below that threshold, so it stays as is. "
+    "No rows will be removed, because the outliers appear to be legitimate extremes "
+    "and deleting them would discard real borrower profiles. "
+    "Values at apparent bounds, such as incomes of exactly 5,000, are kept and "
+    "noted as likely artifacts of the simulated data."
+)
