@@ -167,18 +167,20 @@ for c in out_cols:
 st.dataframe(pd.DataFrame(rows))
 st.write(f"Overall approval rate: {(df_clean['Loan_Approved'] == 'Approved').mean():.3f}")
 
-fig, axes = plt.subplots(2, 3, figsize=(14, 7))
-for ax, c in zip(axes.ravel(), ["Annual_Income", "Loan_Amount", "Total_Assets",
-                                "Total_Liabilities", "Monthly_Debt_Payment", "Debt_To_Income_Ratio"]):
+skewed = ["Annual_Income", "Loan_Amount", "Total_Assets",
+          "Total_Liabilities", "Monthly_Debt_Payment", "Debt_To_Income_Ratio"]
+
+box_cols = skewed + ["Savings_Balance"]
+
+fig, axes = plt.subplots(2, 4, figsize=(18, 7))
+for ax, c in zip(axes.ravel(), box_cols):
     sns.boxplot(x="Loan_Approved", y=c, data=df_clean, ax=ax)
     ax.set_title(c)
+axes.ravel()[-1].axis("off")   # 7 plots in 8 slots
 plt.tight_layout()
 fig.savefig("figures/outlier_boxplots.png", dpi=150)
 st.pyplot(fig)
-st.caption("Figure 1. Boxplots by approval outcome. (Add your interpretation here after reviewing the plots.)")
-
-skewed = ["Annual_Income", "Loan_Amount", "Total_Assets",
-          "Total_Liabilities", "Monthly_Debt_Payment", "Debt_To_Income_Ratio"]
+st.caption("Figure 1. Boxplots by approval outcome. Rejected applicants have higher loan amounts, total liabilities, monthly debt payments, and DTI, while approved applicants have higher annual income, total assets, and savings balances. Outliers echo the tail of a right skewed distribution for most plots. One interesting outlier group is approved applicants with very low annual income. There are probably other borrow characteristics (collateral, co-applicant...) that explain why they were approved despite low income, so this is worth exploring later.")
 
 log_check = pd.DataFrame({
     "skew_raw": df_clean[skewed].skew().round(2),
@@ -206,7 +208,7 @@ axes2.ravel()[-1].axis("off")   # 7 plots in 8 slots
 plt.tight_layout()
 fig2.savefig("figures/outlier_histograms.png", dpi=150)
 st.pyplot(fig2)
-st.caption("Figure 2. Distributions on a log x-axis, by approval outcome. (Add your interpretation here.)")
+st.caption("Figure 2. Distributions on a log x-axis, by approval outcome. Total_Liabilities, Monthly_Debt_Payment, and Debt_To_Income_Ratio look symetric after the log transformation. For income, loan amount, and total assets, the log transformation overcorrects, so they should be kept as is. Rejected applicants are shifted toward higher debt measures and lower income, assets, and savings, but there is substantial overlap. Small spikes near $5,000 income and $1,000 loan amount reflect minimum values in the data.")
 
 outlier_prompt = f"""
 You are a senior data scientist advising on outlier treatment for a loan dataset.
@@ -276,12 +278,12 @@ cat_cols_clean = [c for c in df_clean.columns if c not in num_cols and c != "Loa
 
 # 3a. Target balance
 st.subheader("3a. Outcome Balance")
-fig, ax = plt.subplots(figsize=(4, 3))
+fig, ax = plt.subplots(figsize=(3, 2))
 df_clean["Loan_Approved"].value_counts().plot.bar(ax=ax)
 ax.set_ylabel("Applications")
-st.pyplot(fig)
+st.pyplot(fig, use_container_width=False)
 fig.savefig("figures/target_balance.png", dpi=150)
-st.caption("Figure 3. Approved vs. rejected counts. (Add interpretation.)")
+st.caption("Figure 3. Approved vs. rejected counts. Shows (57.6% approved, 42.4% rejected). The dataset is not perfectly balanced, but the imbalance is not extreme.")
 
 # 3b. Descriptive statistics and group-by aggregation
 st.subheader("3b. Descriptive Statistics by Outcome")
@@ -300,21 +302,30 @@ for ax, c in zip(axes.ravel(), cat_cols_clean):
 plt.tight_layout()
 st.pyplot(fig)
 fig.savefig("figures/approval_rate_by_category.png", dpi=150)
-st.caption("Figure 4. Approval rate within each category; the dashed line is the overall rate. (Add interpretation.)")
+st.caption("Figure 4. Approval rate within each category; the dashed line is the overall rate. Gender, Property_Ownership, Residential_Status, Application_Channel, Loan_Purpose, Region and Marital_Status show little to no variation in approval rate. Collateral, Co_Applicant, and Education_Level show moderate gaps, while Employment_Status and Previous_Loan_Status show the largest gaps. Applicants with a Co_Applicant or Collateral are more likely to be approved, and unemployed applicants or applicants who have previously defaulted are much less likely to be approved.")
 
 # 3d. Approval rate by binned numeric variables
 st.subheader("3d. Approval Rate Across Credit Score and Debt-to-Income Ratio")
 fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-y.groupby(pd.cut(df_clean["Credit_Score"], bins=8)).mean().plot(marker="o", ax=axes[0])
+
+credit_bins = pd.cut(df_clean["Credit_Score"], bins=8, precision=0)
+y.groupby(credit_bins, observed=True).mean().plot(marker="o", ax=axes[0])
 axes[0].set_title("Approval rate by Credit_Score bin")
-y.groupby(pd.qcut(df_clean["Debt_To_Income_Ratio"], q=8)).mean().plot(marker="o", ax=axes[1])
+axes[0].set_ylabel("Approval rate")
+
+dti_bins = pd.qcut(df_clean["Debt_To_Income_Ratio"], q=8, precision=1)
+y.groupby(dti_bins, observed=True).mean().plot(marker="o", ax=axes[1])
 axes[1].set_title("Approval rate by Debt_To_Income_Ratio octile")
+axes[1].set_ylabel("Approval rate")
+
 for ax in axes:
     ax.tick_params(axis="x", rotation=45)
+    for label in ax.get_xticklabels():
+        label.set_ha("right")
 plt.tight_layout()
 st.pyplot(fig)
 fig.savefig("figures/approval_rate_by_bins.png", dpi=150)
-st.caption("Figure 5. Approval rate across bins. (Add interpretation.)")
+st.caption("Figure 5. Approval rate across bins. Credit_Score shows a strong S-shaped relationship with Approval - near 0% for low bins, jumps to about 42% for mid bins, and approaches 100% for high bins. Debt_To_Income_Ratio shows a strong negative relationship with Approval - Approval falls from almost 80% for the lowest octile to around 20% for the highest octile.")
 
 # 3e. Correlation heatmap
 st.subheader("3e. Correlation Heatmap")
@@ -323,10 +334,7 @@ sns.heatmap(df_clean[num_cols].corr(), annot=True, fmt=".2f", annot_kws={"size":
             cmap="coolwarm", center=0, ax=ax)
 st.pyplot(fig)
 fig.savefig("figures/correlation_heatmap.png", dpi=150)
-st.caption("Figure 6. Pearson correlations among numeric variables. (Note clusters of correlated features.)")
-
-# 3f. Scatterplot
-st.subheader("3f. Income vs. Loan Amount")
+st.caption("Figure 6. Pearson correlation heatmap of numeric features. Credit_History_Years and Bank_Account_Age_Years (0.94), and DTI with Monthly_Debt_Payment (0.81), are highly correlated, which creates multicollinearity concerns for interpreting logistic regression coefficients and may split importance across features in the Random Forest. ")
 fig, ax = plt.subplots(figsize=(7, 5))
 sns.scatterplot(data=df_clean.sample(3000, random_state=42), x="Annual_Income",
                 y="Loan_Amount", hue="Loan_Approved", alpha=0.5, ax=ax)
