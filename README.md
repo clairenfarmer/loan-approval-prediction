@@ -2,6 +2,8 @@
 
 An AI assisted data science project that investigates which borrower characteristics most strongly predict loan approval. Results are presented in an interactive Streamlit report.
 
+This is an individual project for UNCG CSC 405, Fall 2026
+
 ## Project Objective
 **Research question:** Which borrower characteristics most strongly predict loan approval outcomes?
 
@@ -9,7 +11,7 @@ The project cleans and explores the data, tests the relationship between each ch
 
 ## Dataset
 - **Name:** Loan Approval Dataset 2026 | Credit Risk & Bank A
-- **Source:** https://www.kaggle.com/datasets/mmumairkhattak/loan-approval-dataset-2026-credit-risk-and-bank-a
+- **Source:** Kaggle User mmumairkhattal: https://www.kaggle.com/datasets/mmumairkhattak/loan-approval-dataset-2026-credit-risk-and-bank-a
 - **Size:** 30,000 rows, 36 columns
 - **Contents:** Applicant demographics, income, employment, credit history, banking behavior, loan request details, collateral indicators, risk scores, and approval outcomes.
 - **Target variable:** `Loan_Approved`
@@ -55,7 +57,7 @@ Gemini was consulted at five steps: leakage review, outlier treatment, statistic
 ## How to Run
 
 ### Prerequisites
-- Python 3.14 (3.12 or 13 should also work, 3.15 may not)
+- Python 3.14 (3.12 or 3.13 should also work, 3.15 may not)
 - Git
 - A Google Gemini API key
 

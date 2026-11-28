@@ -926,3 +926,72 @@ evidence that the models treat the genders differently. This agrees with the chi
 association between gender and approval (V = 0.005). The audit has limits: it compares overall predicted approval rates and does not compare
 error rates between groups, and it covers only gender, since Age and Marital_Status were also excluded from the models but were not audited.
 """)
+
+# ---------------------------------------------------------------
+# 6. Final Conclusions
+# ---------------------------------------------------------------
+st.header("6. Final Conclusions")
+st.markdown("""
+**Answer to the research question.** Credit score is the borrower characteristic that most strongly predicts loan approval.
+It ranks first in both models (permutation importance of 0.106 for logistic regression and 0.101 for the random forest, more than
+twice that of any other feature). It also had the largest effect in the statistical tests (Cohen's d = 1.08; approved applicants
+average 715 vs. 631 for rejected applicants), and one standard deviation of credit score multiplies the odds of approval by 3.17.
+After credit score, the strongest predictors are the loan-to-income ratio (relative loan size), previous loan status, employment status,
+late payments, debt-to-income ratio, and collateral. A previous default (odds ratio 0.05, approval rate about 16%) and unemployment
+(odds ratio 0.10, approval rate about 14%) are the most severe negative signals. Gender, region, education level, and loan purpose
+contribute essentially nothing.
+
+**Agreement between methods.** The statistical tests, the logistic regression, and the random forest tell a consistent story.
+The two models rank the features almost identically (Spearman correlation 0.93) and reach the same test ROC-AUC (0.889), so the
+relationships appear to be largely additive and a nonlinear model adds little. The one-variable tests and the multivariable models disagree in
+one useful way: Annual_Income differs significantly between approved and rejected applicants (d = 0.39) but ranks low in
+both models, because the loan-to-income ratio and credit score carry most of its information. This shows why a significant
+difference in a single comparison does not by itself make a feature a strong predictor.
+
+**Fairness check.** Gender was excluded from the models, and the audit found no evidence of different treatment (predicted approval
+rates differ by 1.3 to 1.4 percentage points, within sampling noise), in line with the chi-square result (V = 0.005).
+
+**Limitations.**
+- *Synthetic data.* The data appears to be simulated (values are clipped at fixed bounds, such as incomes of exactly 5,000), so
+  the results describe this dataset and should not be read as a description of real lending decisions.
+- *Removed columns.* Approved_Amount, Default_Risk and Risk_Score were removed as post-decision variables, and Interest_Rate was removed
+  because it may be set after the decision. If it is in fact a legitimate input, excluding it may understate how much of the
+  decision the available features can explain. The results describe borrower characteristics, not the bank's full process.
+- *Predictive ceiling and over-approval.* Both models misclassify about 19% of test applications, and both approve more applicants than
+  the bank did (61 to 63% predicted vs. 57.6% actual), so the available features leave part of the decision unexplained.
+- *Correlated features.* When features overlap, permutation importance is shared between them (for example Annual_Income and
+  Loan_to_Income), so individual rankings, especially among the low-ranked features, should be read with care. Loan_to_Income also
+  replaces Loan_Amount, so its importance reflects loan size and income together.
+- *Linear credit score.* The logistic regression treats credit score linearly, although the empirical log-odds are steeper at
+  the lowest scores. The random forest's matching AUC suggests the effect on performance is small, but it is a possible
+  underfit.
+- *Excluded demographics.* Age, Gender and Marital_Status were left out on fairness grounds, so the models cannot show whether
+  age contributes to the outcome. The gender audit compares overall predicted rates, not error rates, and does not cover age or marital status.
+- *Single split and association only.* Results come from one stratified train-test split, and importance values have no confidence
+  intervals. All findings are associations, not causal effects.
+""")
+
+# ---------------------------------------------------------------
+# 7. AI Assistance Summary
+# ---------------------------------------------------------------
+st.header("7. AI Assistance Summary")
+st.markdown("""
+Google Gemini was consulted through LangChain at five decision points. Each prompt and response is stored in `report/ai_log.json`.
+The first two steps used Gemini 3.5 Flash-Lite and the last three used Gemini 3.5 Flash; the model name is recorded with each entry.
+In every case I checked Gemini's claims against the data before deciding, and I modified every recommendation in some way; none was accepted unchanged.
+
+| Step | What Gemini recommended | My decision | Main reason |
+|---|---|---|---|
+| Leakage review | Remove Approved_Amount, Default_Risk and Risk_Score; keep Interest_Rate | **Modified**: accepted the three removals and rejected keeping Interest_Rate | Approved_Amount is 0 for every rejected application, Default_Risk is a binned Risk_Score, and Risk_Score is predictable from borrower features (R² about 0.89). Interest_Rate may be set after the decision, so I excluded it as a precaution. Application_ID and Monthly_Income (exactly Annual_Income / 12) were also dropped. |
+| Outlier treatment | Keep most columns as is, log-transform Total_Liabilities, winsorize Debt_To_Income_Ratio at 95 | **Modified**: accepted most; replaced the DTI cap with log1p | 95 is already the maximum DTI, so the cap would change nothing. log1p is applied only where skew exceeds about 1, and no rows were removed because the outliers look like legitimate extremes. |
+| Statistical test selection | Welch's t-test for symmetric variables, Mann-Whitney U for skewed ones, chi-square for categorical variables, effect sizes, BH or Holm correction, importance cutoffs of \\|d\\| > 0.5 and V > 0.3 | **Modified**: accepted Welch's t-test, chi-square and effect sizes; rejected Mann-Whitney and the cutoffs; used Bonferroni | Mann-Whitney was not covered in the course, and Gemini justified the t-test with the CLT in the same answer, which was inconsistent. The cutoffs would label most real effects unimportant. I used Welch's t-test for all five numeric variables with Spearman as a robustness check, and I added chi-square tests for Previous_Loan_Status and Co_Applicant (which my prompt had omitted), giving 13 tests. |
+| Feature selection | Drop collinear features, keep Credit_History_Years, add a loan-to-income ratio, add a credit score spline, add net worth, exclude demographics | **Modified**: accepted most; rejected the spline and net worth; adjusted the ratio | Dropped Monthly_Debt_Payment (VIF 33.3), Bank_Account_Age_Years and Age. The ratio replaces Loan_Amount to keep the maximum VIF at 4.4. The empirical log-odds are close to linear, and net worth is an exact linear combination of Total_Assets and Total_Liabilities. |
+| Model setup | Grid search with 5-fold CV on ROC-AUC, regularized random forest, permutation importance, decision-threshold tuning, calibration | **Modified**: accepted the core plan; corrected details and rejected the extras | Gemini counted "8 and 18 fits" but the grids need 40 and 90 fits, treated the target as default risk (it is the bank's approval decision), and suggested a cost-based threshold with no support in my data. I added train/test AUC and the majority-class baseline. |
+
+**What worked and what did not.** Gemini was useful for generating a checklist of issues to investigate (leakage candidates, test assumptions,
+collinearity) and for suggesting the loan-to-income feature, which became the second most important predictor. Its answers
+contained errors that I found only by checking them against the data, including a cap that does nothing, an inconsistent justification for a test,
+an unsupported "proven" effect, and a business interpretation that did not match the target.
+The prompts also shaped the answers: two categorical variables were missing from my statistical-test prompt, so Gemini never advised on them.
+I treated Gemini's output as a starting point for decisions that I made and justified myself.
+""")
