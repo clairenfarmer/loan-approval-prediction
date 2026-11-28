@@ -22,8 +22,34 @@ from sklearn.inspection import permutation_importance
 from sklearn.base import clone
 
 os.makedirs("figures", exist_ok=True)
-
 st.set_page_config(page_title="Loan Approval Analysis", layout="wide")
+
+def show_ai(step_id, prompt):
+    """Bordered box for a Gemini consultation."""
+    with st.container(border=True):
+        st.markdown("#### AI consultation (Gemini)")
+        with st.spinner("Consulting Gemini (the saved answer is reused on later runs)..."):
+            try:
+                answer = ask_ai(step_id, prompt)
+                model = load_log().get(step_id, {}).get("model", "unknown")
+                st.caption(f"Model: {model} · prompt and response saved in report/ai_log.json")
+                st.markdown(answer)
+            except RuntimeError as e:
+                st.warning("The AI service is unavailable right now. Reload in a minute to retry.")
+                st.caption(str(e))
+
+def show_decision(label, text):
+    """Bordered box for my own evaluation of the AI recommendation."""
+    with st.container(border=True):
+        st.markdown(f"#### My evaluation  \n**Decision: {label}**")
+        st.markdown(text)
+
+st.sidebar.markdown("**Contents**")
+for label in ["1. Dataset Overview", "2. Data Cleaning", "3. Exploratory Data Analysis", "4. Statistical Analysis",
+              "5. Machine Learning", "6. Final Conclusions", "7. AI Assistance Summary"]:
+    st.sidebar.markdown(f"- [{label}](#{label.lower().replace('. ', '-').replace(' ', '-')})")
+
+
 st.title("Loan Approval Prediction: AI-Assisted Data Science Report")
 st.write("Research question: which borrower characteristics most strongly predict loan approval outcomes?")
 
@@ -43,6 +69,10 @@ st.write(f"{df.shape[0]:,} rows and {df.shape[1]} columns.")
 st.dataframe(df.head())
 st.write(df.describe().T)
 
+st.success("**Key takeaway:** The dataset has 30,000 loan applications and 36 columns, and 57.6% of applications were approved, "
+           "so the outcome is moderately imbalanced but not extreme.")
+
+st.divider()
 # ---------------------------------------------------------------
 # 2. Data cleaning
 # ---------------------------------------------------------------
@@ -137,26 +167,8 @@ OUTPUT FORMAT
 A markdown table with columns: Column | Decision | Reason. After the table, add 2-3 sentences on risks or anything I may have missed.
 """
 
-st.write("**AI consultation (Gemini)**")
-with st.spinner("Consulting Gemini (the saved answer is reused on later runs)..."):
-    try:
-        st.markdown(ask_ai("leakage_review", leakage_prompt))
-    except RuntimeError as e:
-        st.warning("The AI service is temporarily unavailable. Reload in a minute to retry.")
-        st.caption(str(e))
-
-st.write("**My evaluation of the AI recommendation**")
-st.write("**Decision:** Modified")
-st.write(
-    "Gemini's recommendation to remove Approved_Amount, Default_Risk, and Risk_Score is appropriate. "
-    "Approved_Amount is decided after the loan is approved, so it is not known at the time of application. "
-    "This is verified by the fact that it is 0 for 100% of rejected applications. "
-    "Default_Risk is just Risk_Score split into three bins, making it a post-decision categorization. "
-    "Risk_Score can be predicted from other borrower features (R² about 0.89) and is most likely a derived metric from the bank. "
-    "Gemini suggested to KEEP Interest_Rate, but I disagree. While it has a moderate correlation with borrower features (R² about 0.67), "
-    "it is unclear whether it was set before or after the approval decision. For this reason, I am excluding it to avoid possible leakage."
-    "especially since Interest_Rate is not a borrower characteristic."
-)   
+show_ai("leakage_review", leakage_prompt)
+show_decision("Modified", "Gemini's recommendation to remove Approved_Amount, Default_Risk, and Risk_Score is appropriate. Approved_Amount is decided after the loan is approved, so it is not known at the time of application. This is verified by the fact that it is 0 for 100% of rejected applications. Default_Risk is just Risk_Score split into three bins, making it a post-decision categorization. Risk_Score can be predicted from other borrower features (R² about 0.89) and is most likely a derived metric from the bank. Gemini suggested to KEEP Interest_Rate, but I disagree. While it has a moderate correlation with borrower features (R² about 0.67), it is unclear whether it was set before or after the approval decision. For this reason I am excluding it to avoid possible leakage, especially since Interest_Rate is not a borrower characteristic.")
 
 # Drop columns based on my evaluation
 DROP_COLS = ["Application_ID", "Monthly_Income", "Approved_Amount",
@@ -255,40 +267,17 @@ OUTPUT FORMAT
 A markdown table with columns: Column | Logistic Regression | Random Forest | Reason. Then 2-3 sentences on risks.
 """
 
-st.write("**AI consultation (Gemini)**")
-with st.spinner("Consulting Gemini (the saved answer is reused on later runs)..."):
-    try:
-        st.markdown(ask_ai("outlier_treatment_v2", outlier_prompt))
-    except RuntimeError as e:
-        st.warning("The AI service is unavailable right now. Reload in a minute to retry.")
-        st.caption(str(e))
+show_ai("outlier_treatment_v2", outlier_prompt)
+show_decision("Modified", "I accepted most of Gemini's recommendations. For Random Forest, I agree with keeping every feature as is, since tree-based models are unaffected by monotonic transformations and robust to outliers. For Logistic Regression, I agree with keeping Annual_Income, Loan_Amount, Credit_Score, and Age as is, because their skews are low and their outliers are legitimate extremes (a log transform would actually worsen Annual_Income, moving its skew from 0.07 to about -1.75). I also agree with keeping Total_Assets (skew 0.74) and Savings_Balance (skew 0.87) as is. Both skews are below about 1, and the high values are legitimate wealthy applicants, so these outliers carry real signal. A log transform would also worsen Savings_Balance (skew -4.11), because about 2.5% of applicants have a balance of exactly 0. I also agree with applying log1p to Total_Liabilities and Monthly_Debt_Payment, whose skews (1.28 and 2.37) are high and which log1p reduces. I modified one recommendation. Gemini proposed winsorizing Debt_To_Income_Ratio at 95, but 95 is already the column's maximum, so the cap would change nothing. I apply log1p instead to reduce its skew (2.44). Overall, I apply log1p only to columns whose skew exceeds about 1. No rows will be removed, because the outliers appear to be legitimate extremes and deleting them would discard real borrower profiles. Values at apparent bounds, such as incomes of exactly 5,000, are kept and noted as likely artifacts of the simulated data. (Note that Monthly_Debt_Payment and Loan_Amount were later removed as inputs in section 5.)")
 
-st.write("**My evaluation of the AI recommendation**")
-st.write("**Decision:** Modified")
-st.write(
-    "I accepted most of Gemini's recommendations. "
-    "For Random Forest, I agree with keeping every feature as is, since tree-based models "
-    "are unaffected by monotonic transformations and robust to outliers. "
-    "For Logistic Regression, I agree with keeping Annual_Income, Loan_Amount, Credit_Score, "
-    "and Age as is, because their skews are low and their outliers are legitimate extremes "
-    "(a log transform would actually worsen Annual_Income, moving its skew from 0.07 to about -1.75). "
-    "I also agree with keeping Total_Assets (skew 0.74) and Savings_Balance (skew 0.87) as is. "
-    "Both skews are below about 1, and the high values are legitimate wealthy applicants, "
-    "so these outliers carry real signal. A log transform would also worsen Savings_Balance "
-    "(skew -4.11), because about 2.5% of applicants have a balance of exactly 0. "
-    "I also agree with applying log1p to Total_Liabilities and Monthly_Debt_Payment, "
-    "whose skews (1.28 and 2.37) are high and which log1p reduces. "
-    "I modified one recommendation. Gemini proposed winsorizing Debt_To_Income_Ratio at 95, "
-    "but 95 is already the column's maximum, so the cap would change nothing. "
-    "I apply log1p instead to reduce its skew (2.44). "
-    "Overall, I apply log1p only to columns whose skew exceeds about 1. "
-    "No rows will be removed, because the outliers appear to be legitimate extremes "
-    "and deleting them would discard real borrower profiles. "
-    "Values at apparent bounds, such as incomes of exactly 5,000, are kept and "
-    "noted as likely artifacts of the simulated data. "
-    "(Note that Monthly_Debt_Payment and Loan_Amount were later removed as inputs in section 5.)"
-)
+st.success("**Key takeaway:** The data has no missing values, duplicates, negatives, or placeholder labels. "
+           "Six columns were removed: Application_ID, Monthly_Income (exactly Annual_Income / 12), and four bank-decision outputs "
+           "(Approved_Amount, Default_Risk, Risk_Score, Interest_Rate) that would leak the outcome. "
+           "Outliers are legitimate extremes, so no rows were removed. "
+           "log1p is applied only to columns with skew above about 1, "
+           "and only for logistic regression.")
 
+st.divider()
 # ---------------------------------------------------------------
 # 3. EDA
 # ---------------------------------------------------------------
@@ -364,6 +353,12 @@ st.pyplot(fig)
 fig.savefig("figures/income_vs_loan_amount.png", dpi=150)
 st.caption("Figure 7. Annual income vs. loan amount for a random sample of 3,000 applications, colored by outcome. Loan amounts rise with income, and the upper limit appears to scale with income. Rejected applicants cluster toward lower income and larger loans, while approved applicants cluster toward higher income and smaller loans, suggesting that the size of the loan relative to income matters more than either value alone. The groups overlap substantially, so income and loan amount alone do not determine approval.")
 
+st.success("**Key takeaway:** Credit score has an S-shaped relationship with approval (near 0% below about 575, about 88% in the top bin), "
+           "and approval falls steadily as debt-to-income ratio rises. Unemployed applicants and previous defaulters are approved "
+           "far less often than every other group, while gender and region show almost no variation. "
+           "Several numeric features are highly correlated, which has to be handled before modelling.")
+
+st.divider()
 # ---------------------------------------------------------------
 # 4. Statistical Analysis
 # ---------------------------------------------------------------
@@ -395,24 +390,8 @@ OUTPUT FORMAT
 A markdown table with columns: Variable type | Test | Why | Effect size. Then 2-3 sentences on risks.
 """
 
-st.write("**AI consultation (Gemini)**")
-with st.spinner("Consulting Gemini (the saved answer is reused on later runs)..."):
-    try:
-        st.markdown(ask_ai("stat_test_selection", stat_prompt))
-    except RuntimeError as e:
-        st.warning("The AI service is unavailable right now. Reload in a minute to retry.")
-        st.caption(str(e))
-
-st.write("**My evaluation of the AI recommendation**")
-st.write("**Decision:** Modified")
-st.write(
-    "I accepted Gemini's decision to use the Welch's t-test for the numeric variables, chi-squared tests for the categorical variables, effect sizes alongside p-values, and "
-    "a multiple testing correction (I am, however, choosing standard Bonferroni for simplicity). I rejected its recommendation of the Mann-Whitney U test for some variables as that test was not covered in the course and Gemini's argument "
-    "for choosing it was inconsistent - It said the CLT justifies the t-test for N = 30,000. I will instead use Welch's t-test for all 5 numeric variables, report medians because of the skew, "
-    "and use Spearman correlation as a robustness check for Late_Payments (54% 0 count). I also rejected its cutoffs for judging importance since that would label most real effects as "
-    "unimportant. I will check the chi-square expected-count assumption directly instead. Gemini counted 11 tests as provided in my prompt, however I added Previous_Loan_Status and Co_Applicant tests later "
-    "after revisiting my Figure 4 interpretation."
-)   
+show_ai("stat_test_selection", stat_prompt)
+show_decision("Modified", "I accepted Gemini's decision to use the Welch's t-test for the numeric variables, chi-squared tests for the categorical variables, effect sizes alongside p-values, and a multiple testing correction (I am, however, choosing standard Bonferroni for simplicity). I rejected its recommendation of the Mann-Whitney U test for some variables as that test was not covered in the course and Gemini's argument for choosing it was inconsistent - It said the CLT justifies the t-test for N = 30,000. I will instead use Welch's t-test for all 5 numeric variables, report medians because of the skew, and use Spearman correlation as a robustness check for Late_Payments (54% 0 count). I also rejected its cutoffs for judging importance since that would label most real effects as unimportant. I will check the chi-square expected-count assumption directly instead. Gemini counted 11 tests as provided in my prompt, however I added Previous_Loan_Status and Co_Applicant tests later after revisiting my Figure 4 interpretation.")  
 
 appr = df_clean[df_clean["Loan_Approved"] == "Approved"]
 rej = df_clean[df_clean["Loan_Approved"] == "Rejected"]
@@ -484,7 +463,7 @@ respectively) matter more than p-values.
 
 **Welch's t-tests.** Each test compares the mean of a numeric variable between 2 independent groups - approved and rejected 
 applicants. With large groups, as in this dataset, the CLT makes the comparison of means reliable even for skewed variables.
- For every test, H0 = The mean is the same for approved and rejected applicants.
+For every test, H0 = The mean is the same for approved and rejected applicants.
 - **Credit_Score:** t = 90.27, p < 0.001, d = 1.08 (large). Approved applicants average 714.7 vs. 630.6 for rejected
   applicants, making credit score the strongest numeric separator of the outcome.
 - **Annual_Income:** t = 33.28, p < 0.001, d = 0.39 (small). Approved applicants earn about 11,700 dollars more on average.
@@ -518,6 +497,12 @@ and region on the other hand, show no association. These comparisons cannot sepa
 method (credit score is correlated with late payments and savings), so the following section will fit multivariable models.
   """)
 
+st.success("**Key takeaway:** 11 of the 13 tests remain significant after the Bonferroni correction; only gender and region do not. "
+           "Because the sample is large, effect sizes matter more than p-values: credit score has a large effect (d = 1.08), "
+           "late payments and debt-to-income ratio medium effects, and employment status and previous loan status "
+           "the largest categorical associations (V = 0.26 and 0.24).")
+
+st.divider()
 # ---------------------------------------------------------------
 # 5. ML
 # ---------------------------------------------------------------
@@ -578,13 +563,7 @@ OUTPUT FORMAT
 Three short sections matching the three tasks, each with a table or bullet list, then 2-3 sentences on risks.
 """
 
-st.write("**AI consultation (Gemini)**")
-with st.spinner("Consulting Gemini (the saved answer is reused on later runs)..."):
-    try:
-        st.markdown(ask_ai("feature_selection", feature_prompt))
-    except RuntimeError as e:
-        st.warning("The AI service is unavailable right now. Reload in a minute to retry.")
-        st.caption(str(e))
+show_ai("feature_selection", feature_prompt)
 
 # extra checks before final decision
 st.write("**Extra checks before making a final decision**")
@@ -631,8 +610,8 @@ st.write("VIF for the final numeric feature set:")
 st.dataframe(vif_table(X_final).rename("VIF"))
 st.write(f"Loan_to_Income skew: {X_final['Loan_to_Income'].skew():.2f}")
 
-st.markdown("""
-**Decision: Modified.** I accepted most of Gemini's recommendations. I dropped Monthly_Debt_Payment (VIF 33.3, and highly
+show_decision("Modified", """
+I accepted most of Gemini's recommendations. I dropped Monthly_Debt_Payment (VIF 33.3, and highly
 correlated with Debt_To_Income_Ratio and Total_Liabilities), Bank_Account_Age_Years (r = 0.94 with Credit_History_Years),
 and Age (r = 0.78 with Job_Experience_Years). After these drops, the highest remaining VIF among the numeric features was 4.4
 (Total_Liabilities).
@@ -661,7 +640,7 @@ Total_Liabilities and would create exact multicollinearity.
 
 Monthly_Debt_Payment and Loan_Amount, which my earlier outlier analysis treated as model inputs, are therefore no longer used.
 
-**The prompt described Savings_Balance as log-transformed. I later removed that transformation (skew 0.87), which does not change Gemini's advice on the other choices.
+The prompt described Savings_Balance as log-transformed. I later removed that transformation (skew 0.87), which does not change Gemini's advice on the other choices.
 """)
 
 # Implement decision
@@ -742,16 +721,9 @@ OUTPUT FORMAT
 Four short sections matching the four tasks, using tables where helpful, then 2-3 sentences on anything I may have missed.
 """
 
-st.write("**AI consultation (Gemini)**")
-with st.spinner("Consulting Gemini (the saved answer is reused on later runs)..."):
-    try:
-        st.markdown(ask_ai("model_setup", setup_prompt))
-    except RuntimeError as e:
-        st.warning("The AI service is unavailable right now. Reload in a minute to retry.")
-        st.caption(str(e))
-
-st.markdown("""
-**Decision: Modified.** I accepted Gemini's core plan: grid search with 5-fold cross-validation, ROC-AUC as the tuning metric
+show_ai("model_setup", setup_prompt)
+show_decision("Modified","""
+I accepted Gemini's core plan: grid search with 5-fold cross-validation, ROC-AUC as the tuning metric
 (the classes are 57.6% / 42.4%, so PR-AUC is not needed), a regularized random forest grid (max_depth, min_samples_leaf,
 max_features), reporting accuracy, precision, recall, F1, ROC-AUC, and confusion matrices, and measuring importance with permutation importance on the
 test set instead of default Gini importance, with a Spearman correlation to compare the two models' rankings.
@@ -769,7 +741,7 @@ approved applicants the model identifies. I rejected its suggestions to tune the
 has no support in my data, and to calibrate probabilities and generate adverse action codes, which are outside the research question. Gemini
 did not mention checking for overfitting or a baseline, so I also report training and test AUC and the majority-class accuracy.
 
-**The prompt described Savings_Balance as log-transformed. I later removed that transformation (skew 0.87), which does not change Gemini's advice on the other choices.
+The prompt described Savings_Balance as log-transformed. I later removed that transformation (skew 0.87), which does not change Gemini's advice on the other choices.
 """)
 
 st.subheader("5d. Model Training and Tuning")
@@ -934,6 +906,12 @@ association between gender and approval (V = 0.005). The audit has limits: it co
 error rates between groups, and it covers only gender, since Age and Marital_Status were also excluded from the models but were not audited.
 """)
 
+st.success("**Key takeaway:** Logistic regression and the random forest perform almost identically (test ROC-AUC 0.889 for both; "
+           "accuracy 81.1% and 81.4% vs. a 57.6% baseline). Credit score, loan-to-income ratio, and previous loan status "
+           "are the most important features in both models, the two importance rankings agree closely (Spearman 0.93), "
+           "and the gender audit found no evidence of different treatment.")
+
+st.divider()
 # ---------------------------------------------------------------
 # 6. Final Conclusions
 # ---------------------------------------------------------------
@@ -978,6 +956,7 @@ rates differ by 1.3 to 1.4 percentage points, within sampling noise), in line wi
   intervals. All findings are associations, not causal effects.
 """)
 
+st.divider()
 # ---------------------------------------------------------------
 # 7. AI Assistance Summary
 # ---------------------------------------------------------------
