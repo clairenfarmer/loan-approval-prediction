@@ -6,7 +6,5 @@ seaborn
 scipy
 statsmodels
 scikit-learn
-xgboost
-langchain
 langchain-google-genai
 python-dotenv

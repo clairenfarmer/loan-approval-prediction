@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.model_selection import cross_val_score
 from sklearn.ensemble import HistGradientBoostingRegressor
-from cache_helper import ask_ai, save_decision, load_log
+from cache_helper import ask_ai, load_log
 from scipy import stats
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from sklearn.model_selection import train_test_split

@@ -58,12 +58,3 @@ def ask_ai(step_id, prompt, refresh=False):
             last_error = e
             time.sleep(2 ** attempt)   # wait 1s, 2s, 4s, 8s between attempts
     raise RuntimeError(f"Gemini is unavailable right now: {last_error}")
-
-
-def save_decision(step_id, decision, justification):
-    log = load_log()
-    if step_id not in log:
-        return
-    log[step_id]["decision"] = decision
-    log[step_id]["justification"] = justification
-    write_log(log)
