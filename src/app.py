@@ -23,7 +23,27 @@ from sklearn.base import clone
 
 os.makedirs("figures", exist_ok=True)
 st.set_page_config(page_title="Loan Approval Analysis", layout="wide")
+PRINT_MODE = st.sidebar.checkbox("Print-friendly tables (for PDF export)", value=False)
 
+def show_table(data, **kwargs):
+    """Interactive table normally; static HTML table when exporting to PDF."""
+    if PRINT_MODE:
+        st.table(data)
+    else:
+        st.dataframe(data, **kwargs)
+
+if PRINT_MODE:
+    st.markdown("""
+    <style>
+    @media print {
+      [data-testid="stSidebar"], [data-testid="stHeader"], footer {display: none !important;}
+      [data-testid="stMain"], [data-testid="stAppViewContainer"], section.main {
+          overflow: visible !important; height: auto !important;}
+      font-size: 12px;
+      img, tr {break-inside: avoid;}
+    }
+    </style>""", unsafe_allow_html=True)
+    
 def show_ai(step_id, prompt):
     """Bordered box for a Gemini consultation."""
     with st.container(border=True):
@@ -33,7 +53,7 @@ def show_ai(step_id, prompt):
                 answer = ask_ai(step_id, prompt)
                 model = load_log().get(step_id, {}).get("model", "unknown")
                 st.caption(f"Model: {model} · prompt and response saved in report/ai_log.json")
-                st.markdown(answer)
+                st.markdown(answer.replace("<br/>", "; ").replace("<br>", "; "))
             except RuntimeError as e:
                 st.warning("The AI service is unavailable right now. Reload in a minute to retry.")
                 st.caption(str(e))
@@ -66,8 +86,8 @@ df = load_data("data/loan_approval_dataset.csv")
 # ---------------------------------------------------------------
 st.header("1. Dataset Overview")
 st.write(f"{df.shape[0]:,} rows and {df.shape[1]} columns.")
-st.dataframe(df.head())
-st.write(df.describe().T)
+show_table(df.head().T if PRINT_MODE else df.head())
+show_table(df.describe().T)
 
 st.success("**Key takeaway:** The dataset has 30,000 loan applications and 36 columns, and 57.6% of applications were approved, "
            "so the outcome is moderately imbalanced but not extreme.")
@@ -95,12 +115,12 @@ audit = {
 st.table(pd.Series(audit, name="Result").astype(str))
 
 st.write("Unique values in each categorical column (checking for hidden placeholders like 'Unknown' or 'N/A'):")
-st.dataframe(pd.DataFrame({"column": cat_cols,
+show_table(pd.DataFrame({"column": cat_cols,
                            "unique values": [", ".join(sorted(df[c].unique())) for c in cat_cols]}))
 
 zeros = (num == 0).sum()
 st.write("Zeros per column (kept, because they are plausible: no late payments, no dependents, and so on):")
-st.write(zeros[zeros > 0].rename("zero count"))
+show_table(zeros[zeros > 0].rename("zero count"))
 st.write("**Finding:** no missing values, duplicates, negatives, or placeholder labels were found, "
          "and the related columns are consistent with each other.")
 
@@ -134,9 +154,9 @@ default_vs_outcome = pd.crosstab(df["Default_Risk"], df["Loan_Approved"], normal
 st.write("**Evidence**")
 st.write(f"- `Approved_Amount` is 0 for {rejected_zero:.1%} of rejected applications.")
 st.write("- Range of `Risk_Score` within each `Default_Risk` category:")
-st.dataframe(risk_bins)
+show_table(risk_bins)
 st.write("- Approval outcome by `Default_Risk` (row proportions):")
-st.dataframe(default_vs_outcome)
+show_table(default_vs_outcome)
 st.write(f"- Mean `Risk_Score` by outcome: {risk_by_outcome}")
 st.write(f"- Mean `Interest_Rate` by outcome: {rate_by_outcome}")
 st.write(f"- R² predicting `Risk_Score` from borrower features: {r2['Risk_Score']}; "
@@ -191,7 +211,7 @@ for c in out_cols:
                  "pct": round(100 * flagged.mean(), 2),
                  "skew": round(df_clean[c].skew(), 2),
                  "approval rate among outliers": round((df_clean.loc[flagged, "Loan_Approved"] == "Approved").mean(), 3) if flagged.any() else None})
-st.dataframe(pd.DataFrame(rows))
+show_table(pd.DataFrame(rows))
 st.write(f"Overall approval rate: {(df_clean['Loan_Approved'] == 'Approved').mean():.3f}")
 
 skewed = ["Annual_Income", "Loan_Amount", "Total_Assets",
@@ -222,7 +242,7 @@ cap_info = {
 }
 
 st.write("**Skewness before and after a log transform**")
-st.dataframe(log_check)
+show_table(log_check)
 
 hist_cols = skewed + ["Savings_Balance"]   
 
@@ -297,9 +317,9 @@ st.caption("Figure 3. Approved vs. rejected counts. Counts of approved and rejec
 
 # 3b. Descriptive statistics and group-by aggregation
 st.subheader("3b. Descriptive Statistics by Outcome")
-st.dataframe(df_clean[num_cols].describe().T.round(2))
+show_table(df_clean[num_cols].describe().T.round(2))
 st.write("Mean and median of each numeric variable by approval outcome (group-by aggregation):")
-st.dataframe(df_clean.groupby("Loan_Approved")[num_cols].agg(["mean", "median"]).round(1).T)
+show_table(df_clean.groupby("Loan_Approved")[num_cols].agg(["mean", "median"]).round(1).T)
 
 # 3c. Approval rate by category (group-by)
 st.subheader("3c. Approval Rate by Category")
@@ -431,14 +451,14 @@ res = pd.DataFrame(results)
 m = len(res)
 res["p_bonferroni"] = (res["p_raw"] * m).clip(upper=1).map(lambda x: f"{x:.2e}")
 res["p_raw"] = res["p_raw"].map(lambda x: f"{x:.2e}")
-st.dataframe(res)
+show_table(res)
 st.caption(f"Bonferroni correction across {m} tests (adjusted alpha = {0.05/m:.4f}). "
            "Effect-size labels follow Cohen's conventions and are descriptive, not pass/fail cutoffs.")
 st.write("Smallest expected cell count in each chi-square table (should be at least 5):", min_expected)
 
 for c in ["Previous_Loan_Status", "Co_Applicant"]:
     st.write(f"Approval rate by {c}:")
-    st.dataframe(
+    show_table(
         df_clean.groupby(c)["Loan_Approved"]
         .apply(lambda s: (s == "Approved").mean())
         .round(3)
@@ -453,7 +473,7 @@ for c in num_tests:
     rho, p = stats.spearmanr(df_clean[c], y_bin)
     corr_rows.append({"variable": c, "Spearman rho with approval": round(rho, 3), "p": f"{p:.2e}"})
 st.write("Spearman correlation of each numeric variable with approval (robustness check):")
-st.dataframe(pd.DataFrame(corr_rows))
+show_table(pd.DataFrame(corr_rows))
 
 st.markdown("""
 **Interpretation.** All 13 tests are judged against a Bonferroni-adjusted threshold of 0.05 / 13 = 0.0038.
@@ -528,9 +548,9 @@ vif = pd.Series([variance_inflation_factor(X_vif.values, i) for i in range(X_vif
 assoc = res[["variable", "effect type", "effect"]].to_string(index=False)
 
 st.write("Highly correlated pairs (|r| > 0.65):")
-st.dataframe(high_pairs)
+show_table(high_pairs)
 st.write("Variance inflation factors (after planned log1p transforms and standardization):")
-st.dataframe(vif.rename("VIF"))
+show_table(vif.rename("VIF"))
 
 feature_prompt = f"""
 You are a senior data scientist advising on feature selection for a loan approval model.
@@ -587,7 +607,7 @@ def vif_table(X):
 
 X_base = df_clean[num_final]
 X_lti = X_base.assign(Loan_to_Income=df_clean["Loan_Amount"] / df_clean["Annual_Income"])
-st.dataframe(pd.DataFrame({"VIF without LTI": vif_table(X_base),
+show_table(pd.DataFrame({"VIF without LTI": vif_table(X_base),
                            "VIF with LTI": vif_table(X_lti)}))
 
 # 3. Loan-to-income effect size
@@ -599,7 +619,7 @@ st.write(f"Loan_to_Income: Cohen's d = {(a.mean()-r.mean())/pooled:.3f}")
 # 4. Is credit score roughly linear in log-odds? (if so, no spline is needed)
 bins = pd.cut(df_clean["Credit_Score"], bins=8, precision=0)
 rate = y.groupby(bins, observed=True).mean().clip(0.005, 0.995)
-st.dataframe(pd.DataFrame({"approval rate": rate.round(3),
+show_table(pd.DataFrame({"approval rate": rate.round(3),
                            "log-odds": np.log(rate / (1 - rate)).round(2)}))
 
 # 5. check final VIFs
@@ -607,7 +627,7 @@ final_num = [c for c in num_cols if c not in
              ["Age", "Monthly_Debt_Payment", "Bank_Account_Age_Years", "Loan_Amount"]]
 X_final = df_clean[final_num].assign(Loan_to_Income=df_clean["Loan_Amount"] / df_clean["Annual_Income"])
 st.write("VIF for the final numeric feature set:")
-st.dataframe(vif_table(X_final).rename("VIF"))
+show_table(vif_table(X_final).rename("VIF"))
 st.write(f"Loan_to_Income skew: {X_final['Loan_to_Income'].skew():.2f}")
 
 show_decision("Modified", """
@@ -660,7 +680,7 @@ LOG_FEATURES = ["Total_Liabilities", "Debt_To_Income_Ratio"]  # logistic regress
 
 st.write(f"Final model dataset: {len(NUMERIC_FEATURES) + len(CATEGORICAL_FEATURES)} features "
          f"({len(NUMERIC_FEATURES)} numeric, {len(CATEGORICAL_FEATURES)} categorical).")
-st.dataframe(pd.DataFrame({
+show_table(pd.DataFrame({
     "type": ["numeric"] * len(NUMERIC_FEATURES) + ["categorical"] * len(CATEGORICAL_FEATURES),
     "feature": NUMERIC_FEATURES + CATEGORICAL_FEATURES,
 }))
@@ -788,7 +808,7 @@ def summarize(name, search, best):
             "F1": round(f1_score(y_test, pred), 3)}
 
 
-st.dataframe(pd.DataFrame([summarize("Logistic Regression", search_lr, best_lr),
+show_table(pd.DataFrame([summarize("Logistic Regression", search_lr, best_lr),
                            summarize("Random Forest", search_rf, best_rf)]))
 st.caption(f"Majority-class baseline accuracy: {max(y_test.mean(), 1 - y_test.mean()):.3f}. "
            "Metrics use a 0.5 threshold on the held-out test set.")
@@ -833,7 +853,7 @@ imp = pd.DataFrame({"Logistic Regression": perm_importance("lr", best_lr),
 imp["rank LR"] = imp["Logistic Regression"].rank(ascending=False).astype(int)
 imp["rank RF"] = imp["Random Forest"].rank(ascending=False).astype(int)
 imp = imp.sort_values("rank RF")
-st.dataframe(imp.round(4))
+show_table(imp.round(4))
 rho, p = stats.spearmanr(imp["Logistic Regression"], imp["Random Forest"])
 st.write(f"Spearman rank correlation between the two importance rankings: {rho:.2f} (p = {p:.1e})")
 
@@ -858,13 +878,13 @@ odds = pd.DataFrame({"term": names, "coefficient": coefs.round(3), "odds ratio":
 odds = odds.reindex(odds["coefficient"].abs().sort_values(ascending=False).index).head(20)
 st.write("Largest logistic regression effects. Numeric terms are per standard deviation; categorical terms are "
          "relative to the first level alphabetically, which was dropped.")
-st.dataframe(odds)
+show_table(odds)
 
 st.subheader("5g. Predicted Approval Rate by Gender (audit only; Gender is not a model input)")
 g = audit_gender.loc[X_test.index]
 pred_lr = pd.Series((best_lr.predict_proba(X_test)[:, 1] >= 0.5).astype(int), index=X_test.index)
 pred_rf = pd.Series((best_rf.predict_proba(X_test)[:, 1] >= 0.5).astype(int), index=X_test.index)
-st.dataframe(pd.DataFrame({"actual approval rate": y_test.groupby(g).mean(),
+show_table(pd.DataFrame({"actual approval rate": y_test.groupby(g).mean(),
                            "LR predicted approval rate": pred_lr.groupby(g).mean(),
                            "RF predicted approval rate": pred_rf.groupby(g).mean()}).round(3))
 
