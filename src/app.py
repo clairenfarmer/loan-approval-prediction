@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import os
 from sklearn.model_selection import cross_val_score
 from sklearn.ensemble import HistGradientBoostingRegressor
 from cache_helper import ask_ai, load_log
@@ -19,6 +20,8 @@ from sklearn.metrics import (accuracy_score, precision_score, recall_score, f1_s
                              roc_auc_score, confusion_matrix, roc_curve)
 from sklearn.inspection import permutation_importance
 from sklearn.base import clone
+
+os.makedirs("figures", exist_ok=True)
 
 st.set_page_config(page_title="Loan Approval Analysis", layout="wide")
 st.title("Loan Approval Prediction: AI-Assisted Data Science Report")
@@ -73,9 +76,9 @@ st.write("**Finding:** no missing values, duplicates, negatives, or placeholder 
 
 st.write("**Decision:** Remove Application_ID and Monthly_Income")
 st.write(
-    "Application_ID is just an identifier, not a borrower characteristic. Since we have verified",
-    " that all IDs are unique, we can safely drop it. Monthly_Income is redundant with Annual_Income",
-    ", and the latter is more reliable, especially due to rounding errors when dividing by 12. We will keep Annual_Income and drop Monthly_Income."
+    "Application_ID is just an identifier, not a borrower characteristic. Since I have verified"
+    " that all IDs are unique, I can safely drop it. Monthly_Income is redundant with Annual_Income"
+    ", and the latter is more reliable, especially due to rounding errors when dividing by 12. I will keep Annual_Income and drop Monthly_Income."
 )   
 # 2b. Leakage review
 st.subheader("2b. Leakage Review")
@@ -145,13 +148,13 @@ with st.spinner("Consulting Gemini (the saved answer is reused on later runs)...
 st.write("**My evaluation of the AI recommendation**")
 st.write("**Decision:** Modified")
 st.write(
-    "Geminis recommendation to remove Approved_Amount, Default_Risk, and Risk_Score is appropriate. ",
-    "Approved_Amount is decided after the loan is approved, so it is not known at the time of application. ",
-    "This is verified by the fact that it is 0 for 100% of rejected applications. ",
-    "Default_Risk is just Risk_Score split into three bins, making it a post-decision categorization. ",
-    "Risk_Score can be predicted from other borrower features (R² about 0.89) and is most likely a derived metric from the bank.",
-    "Gemini suggested to KEEP Interest_Rate, but I disagree. While it has a moderate correlation with borrower features (R² about 0.67). ",
-    "it is unclear wether it was set before or after the approval decision. For this reason, I am excluding it to avoid possible leakage.",
+    "Gemini's recommendation to remove Approved_Amount, Default_Risk, and Risk_Score is appropriate. "
+    "Approved_Amount is decided after the loan is approved, so it is not known at the time of application. "
+    "This is verified by the fact that it is 0 for 100% of rejected applications. "
+    "Default_Risk is just Risk_Score split into three bins, making it a post-decision categorization. "
+    "Risk_Score can be predicted from other borrower features (R² about 0.89) and is most likely a derived metric from the bank. "
+    "Gemini suggested to KEEP Interest_Rate, but I disagree. While it has a moderate correlation with borrower features (R² about 0.67), "
+    "it is unclear whether it was set before or after the approval decision. For this reason, I am excluding it to avoid possible leakage."
     "especially since Interest_Rate is not a borrower characteristic."
 )   
 
@@ -192,7 +195,7 @@ axes.ravel()[-1].axis("off")   # 7 plots in 8 slots
 plt.tight_layout()
 fig.savefig("figures/outlier_boxplots.png", dpi=150)
 st.pyplot(fig)
-st.caption("Figure 1. Boxplots by approval outcome. Rejected applicants have higher loan amounts, total liabilities, monthly debt payments, and DTI, while approved applicants have higher annual income, total assets, and savings balances. Outliers echo the tail of a right skewed distribution for most plots. One interesting outlier group is approved applicants with very low annual income. This is a small group pattern.")
+st.caption("Figure 1. Boxplots by approval outcome. Rejected applicants have higher loan amounts, total liabilities, monthly debt payments, and DTI, while approved applicants have higher annual income, total assets, and savings balances. Outliers echo the tail of a right-skewed distribution for most plots. One interesting outlier group is approved applicants with very low annual income. This is a small group pattern.")
 
 log_check = pd.DataFrame({
     "skew_raw": df_clean[skewed].skew().round(2),
@@ -220,7 +223,7 @@ axes2.ravel()[-1].axis("off")   # 7 plots in 8 slots
 plt.tight_layout()
 fig2.savefig("figures/outlier_histograms.png", dpi=150)
 st.pyplot(fig2)
-st.caption("Figure 2. Distributions on a log x-axis, by approval outcome. Total_Liabilities, Monthly_Debt_Payment, and Debt_To_Income_Ratio look symetric after the log transformation. For income, loan amount, and total assets, the log transformation overcorrects, so they should be kept as is. Rejected applicants are shifted toward higher debt measures and lower income, assets, and savings, but there is substantial overlap. Small spikes near $5,000 income and $1,000 loan amount reflect minimum values in the data.")
+st.caption("Figure 2. Distributions on a log x-axis, by approval outcome. Total_Liabilities, Monthly_Debt_Payment, and Debt_To_Income_Ratio look symmetric after the log transformation. For income, loan amount, and total assets, the log transformation overcorrects, so they should be kept as is. Rejected applicants are shifted toward higher debt measures and lower income, assets, and savings, but there is substantial overlap. Small spikes near 5,000 dollars of income and 1,000 dollars of loan amount reflect minimum values in the data.")
 
 outlier_prompt = f"""
 You are a senior data scientist advising on outlier treatment for a loan dataset.
@@ -301,7 +304,7 @@ df_clean["Loan_Approved"].value_counts().plot.bar(ax=ax)
 ax.set_ylabel("Applications")
 st.pyplot(fig, use_container_width=False)
 fig.savefig("figures/target_balance.png", dpi=150)
-st.caption("Figure 3. Approved vs. rejected counts. Shows (57.6% approved, 42.4% rejected). The dataset is not perfectly balanced, but the imbalance is not extreme.")
+st.caption("Figure 3. Approved vs. rejected counts. Counts of approved and rejected applications (57.6% approved, 42.4% rejected). The dataset is not perfectly balanced, but the imbalance is not extreme.")
 
 # 3b. Descriptive statistics and group-by aggregation
 st.subheader("3b. Descriptive Statistics by Outcome")
@@ -320,7 +323,7 @@ for ax, c in zip(axes.ravel(), cat_cols_clean):
 plt.tight_layout()
 st.pyplot(fig)
 fig.savefig("figures/approval_rate_by_category.png", dpi=150)
-st.caption("Figure 4. Approval rate within each category; the dashed line is the overall rate. Gender, Property_Ownership, Residential_Status, Application_Channel, Loan_Purpose, Region and Marital_Status show little to no variation in approval rate. Collateral, Co_Applicant, and Education_Level show some gaps (section 4 later clarifies these gaps as small to neglible), while Employment_Status and Previous_Loan_Status show the largest gaps. Applicants with a Co_Applicant or Collateral are more likely to be approved, and unemployed applicants or applicants who have previously defaulted are much less likely to be approved.")
+st.caption("Figure 4. Approval rate within each category; the dashed line is the overall rate. Gender, Property_Ownership, Residential_Status, Application_Channel, Loan_Purpose, Region and Marital_Status show little to no variation in approval rate. Collateral, Co_Applicant, and Education_Level show some gaps (section 4 later clarifies these gaps as small to negligible), while Employment_Status and Previous_Loan_Status show the largest gaps. Applicants with a Co_Applicant or Collateral are more likely to be approved, and unemployed applicants or applicants who have previously defaulted are much less likely to be approved.")
 
 # 3d. Approval rate by binned numeric variables
 st.subheader("3d. Approval Rate Across Credit Score and Debt-to-Income Ratio")
@@ -403,11 +406,11 @@ with st.spinner("Consulting Gemini (the saved answer is reused on later runs)...
 st.write("**My evaluation of the AI recommendation**")
 st.write("**Decision:** Modified")
 st.write(
-    "I accepted Gemini's decision to use the Welch's t-test for the numeric variables, chi-squared tests for the categorical variables, effect sizes alongisde p-values, and ",
-    "a multiple testing correction (I am, however, choosing standard Bonferroni for simplicity). I rejected its recommendation of the Mann-Whitney U test for some variables as that test was not covered in the course and Gemini's argument ",
-    "for chosing it was inconsistent - It said the CLT justifies the t-test for N = 30,000. I will instead use Welch's t-test for all 5 numeric variables, report medians because of the skew, ",
-    "and use Spearman correlation as a robustness check for Late_Payments (54% 0 count). I also rejected its cutoffs for judging importance since that would label most real effects as ",
-    "unimportant. I will check the chi-square expected-count assumption directly instead. Gemini counted 11 tests as provided in my prompt, however I added Previous_Loan_Status and Co_Applicant tests later ",
+    "I accepted Gemini's decision to use the Welch's t-test for the numeric variables, chi-squared tests for the categorical variables, effect sizes alongside p-values, and "
+    "a multiple testing correction (I am, however, choosing standard Bonferroni for simplicity). I rejected its recommendation of the Mann-Whitney U test for some variables as that test was not covered in the course and Gemini's argument "
+    "for choosing it was inconsistent - It said the CLT justifies the t-test for N = 30,000. I will instead use Welch's t-test for all 5 numeric variables, report medians because of the skew, "
+    "and use Spearman correlation as a robustness check for Late_Payments (54% 0 count). I also rejected its cutoffs for judging importance since that would label most real effects as "
+    "unimportant. I will check the chi-square expected-count assumption directly instead. Gemini counted 11 tests as provided in my prompt, however I added Previous_Loan_Status and Co_Applicant tests later "
     "after revisiting my Figure 4 interpretation."
 )   
 
@@ -475,12 +478,12 @@ st.dataframe(pd.DataFrame(corr_rows))
 
 st.markdown("""
 **Interpretation.** All 13 tests are judged against a Bonferroni-adjusted threshold of 0.05 / 13 = 0.0038.
-P-valuesshown as "< 0.001" are smaller than the display limit of the software. With 30,000 applicants, nearly every 
+P-values shown as "< 0.001" are smaller than the display limit of the software. With 30,000 applicants, nearly every 
 test is statistically significant, so the effect sizes (Cohen's d and Cramer's V for numeric and categorical variables 
 respectively) matter more than p-values.
 
 **Welch's t-tests.** Each test compares the mean of a numeric variable between 2 independent groups - approved and rejected 
-appplicants. With large groups, as in this dataset, the CLT makes the comparison of means reliable even for skewed variables.
+applicants. With large groups, as in this dataset, the CLT makes the comparison of means reliable even for skewed variables.
  For every test, H0 = The mean is the same for approved and rejected applicants.
 - **Credit_Score:** t = 90.27, p < 0.001, d = 1.08 (large). Approved applicants average 714.7 vs. 630.6 for rejected
   applicants, making credit score the strongest numeric separator of the outcome.
@@ -493,13 +496,13 @@ appplicants. With large groups, as in this dataset, the CLT makes the comparison
 - **Credit_History_Years:** t = 15.79, p < 0.001, d = 0.18 (very small). Approved applicants have about 1.2 more years of
   credit history on average, a statistically significant but practically small difference.
 
-  **Chi-square tests of independence.** Each test asks whether approval rates differ across the categories of a variable. Both 
-  since both variables are categorical, a chi-square test is appropriate here. Every table has expected cell counts above 500, 
-  so the assumption of at least 5 is met. For every test, H0 = approval is independent of the variable.
+**Chi-square tests of independence.** Each test asks whether approval rates differ across the categories of a variable.  
+Since both variables are categorical, a chi-square test is appropriate here. Every table has expected cell counts above 500, 
+so the assumption of at least 5 is met. For every test, H0 = approval is independent of the variable.
 - **Employment_Status:** χ2 = 2073.79 (df = 4), p < 0.001, V = 0.26 (small to moderate). The association is driven mainly
   by unemployed applicants, who are approved far less often than every other group (Figure 4).
 - **Previous_Loan_Status:** χ2 = 1712.71 (df = 3), p < 0.001, V = 0.24 (small to moderate). Applicants with a previously
-  defaulted loan are approved only about 15% of the time, compared with about 65% of those who paid off a previous loan.
+  defaulted loan are approved only about 16% of the time, compared with about 66% of those who paid off a previous loan.
 - **Co_Applicant:** χ2 = 138.91 (df = 1), p < 0.001, V = 0.07 (negligible). Applications with a co-applicant are approved
   somewhat more often (about 63% vs. 55%), but the association is weak.
 - **Collateral:** χ2 = 307.35 (df = 1), p < 0.001, V = 0.10 (small). Applicants offering collateral are approved more often.
@@ -509,10 +512,10 @@ appplicants. With large groups, as in this dataset, the CLT makes the comparison
 - **Gender:** χ2 = 0.71 (df = 1), p = 0.40, V = 0.005. There is no evidence that approval differs by gender.
 - **Region:** χ2 = 9.33 (df = 4), raw p = 0.053 (adjusted p ≈ 0.69), V = 0.02. There is no evidence of a regional difference.
 
-**Takeaway.** For numeric variables, credit score shows by far the largest difference between approved and rejected  applicants. Late payments and debt-to-income
- ratio are the next most significant. For categorical variables, employment status and previous loan status show the largest associations. Gender 
- and region on the other hand, show no association. These comparrisons cannot separate overlapping effects due to the one-variable-at-a-time 
- method (credit score is correlated with late payments and savings), so the following section will fit multivariable models.
+**Takeaway.** For numeric variables, credit score shows by far the largest difference between approved and rejected  applicants. Late payments and debt-to-income 
+ratio are the next most significant. For categorical variables, employment status and previous loan status show the largest associations. Gender 
+and region on the other hand, show no association. These comparisons cannot separate overlapping effects due to the one-variable-at-a-time 
+method (credit score is correlated with late payments and savings), so the following section will fit multivariable models.
   """)
 
 # ---------------------------------------------------------------
@@ -657,6 +660,8 @@ I also rejected the net worth feature (assets minus liabilities), because it is 
 Total_Liabilities and would create exact multicollinearity.
 
 Monthly_Debt_Payment and Loan_Amount, which my earlier outlier analysis treated as model inputs, are therefore no longer used.
+
+**The prompt described Savings_Balance as log-transformed. I later removed that transformation (skew 0.87), which does not change Gemini's advice on the other choices.
 """)
 
 # Implement decision
@@ -763,6 +768,8 @@ decision. Precision is therefore the share of predicted approvals that the bank 
 approved applicants the model identifies. I rejected its suggestions to tune the decision threshold using a 3x to 5x default cost, which
 has no support in my data, and to calibrate probabilities and generate adverse action codes, which are outside the research question. Gemini
 did not mention checking for overfitting or a baseline, so I also report training and test AUC and the majority-class accuracy.
+
+**The prompt described Savings_Balance as log-transformed. I later removed that transformation (skew 0.87), which does not change Gemini's advice on the other choices.
 """)
 
 st.subheader("5d. Model Training and Tuning")
@@ -933,7 +940,7 @@ error rates between groups, and it covers only gender, since Age and Marital_Sta
 st.header("6. Final Conclusions")
 st.markdown("""
 **Answer to the research question.** Credit score is the borrower characteristic that most strongly predicts loan approval.
-It ranks first in both models (permutation importance of 0.106 for logistic regression and 0.101 for the random forest, more than
+It ranks first in both models (permutation importance of 0.106 for logistic regression and 0.101 for the random forest, about 
 twice that of any other feature). It also had the largest effect in the statistical tests (Cohen's d = 1.08; approved applicants
 average 715 vs. 631 for rejected applicants), and one standard deviation of credit score multiplies the odds of approval by 3.17.
 After credit score, the strongest predictors are the loan-to-income ratio (relative loan size), previous loan status, employment status,
